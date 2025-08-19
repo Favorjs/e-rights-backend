@@ -41,7 +41,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// API-only mode - React app will be served separately in production
+//Serve React app in production
+// if (process.env.NODE_ENV === 'production') {
+//   app.use(express.static(path.join(__dirname, '../client/build')));
+  
+//   app.get('*', (req, res) => {
+//     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+//   });
+// }
 
 // Error handling middleware
 app.use((err, req, res, next) => {
