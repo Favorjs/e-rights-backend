@@ -41,7 +41,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-//Serve React app in production
+// Serve React app in production
 // if (process.env.NODE_ENV === 'production') {
 //   app.use(express.static(path.join(__dirname, '../client/build')));
   
