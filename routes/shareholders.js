@@ -76,14 +76,6 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Validate that ID is a positive integer
-    if (!/^\d+$/.test(id)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid shareholder ID. Must be a positive integer.'
-      });
-    }
-    
     const query = `
       SELECT 
         id,
@@ -102,7 +94,6 @@ router.get('/:id', async (req, res) => {
     
     if (result.rows.length === 0) {
       return res.status(404).json({ 
-        success: false,
         error: 'Shareholder not found' 
       });
     }
@@ -114,7 +105,6 @@ router.get('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error getting shareholder:', error);
     res.status(500).json({ 
-      success: false,
       error: 'Failed to get shareholder',
       message: error.message 
     });
@@ -155,48 +145,6 @@ router.get('/reg/:regNumber', async (req, res) => {
   } catch (error) {
     console.error('Error getting shareholder by reg number:', error);
     res.status(500).json({ 
-      error: 'Failed to get shareholder',
-      message: error.message 
-    });
-  }
-});
-
-// Get a single shareholder by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const query = `
-      SELECT 
-        id,
-        reg_account_number,
-        name,
-        holdings,
-        rights_issue,
-        holdings_after,
-        amount_due,
-        created_at
-      FROM shareholders
-      WHERE id = $1
-    `;
-    
-    const result = await pool.query(query, [id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Shareholder not found' 
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error getting shareholder:', error);
-    res.status(500).json({ 
-      success: false,
       error: 'Failed to get shareholder',
       message: error.message 
     });
