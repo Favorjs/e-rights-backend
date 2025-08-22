@@ -28,7 +28,7 @@ const corsOptions = {
     
     // Allow your Netlify domain and localhost for development
     const allowedOrigins = [
-      'https://e-rights-app.netlify.app', // Replace with your actual Netlify domain
+      'https://e-rights-app.netlify.app', // Your Netlify domain
       'https://tip.apel.com.ng', // Your production domain
       'http://localhost:3000',
       'http://localhost:3001'
@@ -43,7 +43,17 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Cache-Control',
+    'Pragma',
+    'Expires'
+  ],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  preflightContinue: false,
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
@@ -62,6 +72,9 @@ app.use('/api/forms', formRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/uploads', uploadRoutes);
 
+// Handle OPTIONS requests for CORS preflight
+app.options('*', cors(corsOptions));
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -69,7 +82,8 @@ app.get('/api/health', (req, res) => {
     message: 'Rights Web App API is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    cors: 'enabled'
+    cors: 'enabled',
+    allowedOrigins: corsOptions.origin ? 'configured' : 'default'
   });
 });
 
