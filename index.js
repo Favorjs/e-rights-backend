@@ -28,7 +28,7 @@ const corsOptions = {
     
     // Allow your Netlify domain and localhost for development
     const allowedOrigins = [
-      'https://your-app-name.netlify.app', // Replace with your actual Netlify domain
+      'https://e-rights-app.netlify.app', // Replace with your actual Netlify domain
       'https://tip.apel.com.ng', // Your production domain
       'http://localhost:3000',
       'http://localhost:3001'
