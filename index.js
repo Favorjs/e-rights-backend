@@ -19,52 +19,12 @@ const uploadRoutes = require('./routes/uploads');
 // Middleware
 app.use(helmet());
 app.use(compression());
-
-// CORS configuration for production
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Allow your Netlify domain and localhost for development
-    const allowedOrigins = [
-      'https://e-rights-app.netlify.app', // Your Netlify domain
-      'https://tip.apel.com.ng', // Your production domain
-      'http://localhost:3000',
-      'http://localhost:3001'
-    ];
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With',
-    'Cache-Control',
-    'Pragma',
-    'Expires'
-  ],
-  exposedHeaders: ['Content-Length', 'Content-Type'],
-  preflightContinue: false,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
-// Serve PDF forms
-app.use('/forms', express.static(path.join(__dirname, '../client/public/forms')));
 
 // Routes
 app.use('/api/shareholders', shareholderRoutes);
@@ -72,28 +32,12 @@ app.use('/api/forms', formRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/uploads', uploadRoutes);
 
-// Handle OPTIONS requests for CORS preflight
-app.options('*', cors(corsOptions));
-
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'Rights Web App API is running',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    cors: 'enabled',
-    allowedOrigins: corsOptions.origin ? 'configured' : 'default'
-  });
-});
-
-// Test endpoint for debugging
-app.get('/api/test', (req, res) => {
-  res.json({ 
-    message: 'Test endpoint working',
-    timestamp: new Date().toISOString(),
-    headers: req.headers,
-    origin: req.get('Origin')
+    timestamp: new Date().toISOString()
   });
 });
 
