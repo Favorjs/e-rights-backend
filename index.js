@@ -41,6 +41,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// CORS configuration for production
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? [process.env.FRONTEND_URL, 'https://tip.apel.com.ng'] // Add your actual frontend domain
+    : 'http://localhost:3000',
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
+
 // Serve React app in production
 // if (process.env.NODE_ENV === 'production') {
 //   app.use(express.static(path.join(__dirname, '../client/build')));
