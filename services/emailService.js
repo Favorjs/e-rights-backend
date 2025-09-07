@@ -243,7 +243,7 @@ const sendShareholderConfirmation = async (submissionData) => {
           
           <p>Please find attached a copy of your completed Rights Issue Form for your records.</p>
           
-          <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL || 'registrars@apel.ng'}.</p>
+          <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL }.</p>
           
           <p>Best regards,<br>The ${process.env.COMPANY_NAME || 'Rights Issue'} Team</p>
           
@@ -272,7 +272,7 @@ const sendShareholderConfirmation = async (submissionData) => {
 };
 
 module.exports = {
-  sendRightsSubmissionNotification,
+  // sendRightsSubmissionNotification,
   sendFormSubmissionNotification,
   sendShareholderConfirmation
 };
