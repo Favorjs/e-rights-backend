@@ -3,8 +3,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const path = require('path');
+const fileUpload = require('express-fileupload');
 require('dotenv').config();
-
+// Serve static files from uploads directory
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const app = express();
 
 // Import database initialization
@@ -16,12 +18,21 @@ const formRoutes = require('./routes/forms');
 const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/uploads');
 
+// const FormSubmission = require('./routes/')
+
 // Middleware
 app.use(helmet());
 app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(fileUpload({
+  createParentPath: true,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  abortOnLimit: true,
+  useTempFiles: true,
+  tempFileDir: '/tmp/'
+}));
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

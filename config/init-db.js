@@ -2,7 +2,7 @@ const pool = require('./database');
 
 const initDatabase = async () => {
   try {
-    // Create shareholders table
+    // Create shareholders table (unchanged)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS shareholders (
         id SERIAL PRIMARY KEY,
@@ -15,20 +15,50 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) 
-`);
+    `);
 
-    // Create forms table
+    // Create stockbrokers table (new)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS stockbrokers (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        code VARCHAR(50) UNIQUE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Insert sample stockbrokers
+    const sampleStockbrokers = [
+      { name: 'APC Securities Limited', code: 'APC' },
+      { name: 'Cordros Capital Limited', code: 'CORD' },
+      { name: 'FBNQuest Merchant Bank Limited', code: 'FBNQ' },
+      { name: 'FCMB Capital Markets Limited', code: 'FCMB' },
+      { name: 'FSL Securities Limited', code: 'FSL' },
+      { name: 'Meristem Capital Limited', code: 'MERISTEM' },
+      { name: 'Stanbic IBTC Stockbrokers Limited', code: 'STANBIC' },
+      { name: 'United Capital Securities Limited', code: 'UCSL' }
+    ];
+
+    for (const broker of sampleStockbrokers) {
+      await pool.query(`
+        INSERT INTO stockbrokers (name, code)
+        VALUES ($1, $2)
+        ON CONFLICT (code) DO NOTHING
+      `, [broker.name, broker.code]);
+    }
+
+    // Create forms table (unchanged)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS forms (
         id SERIAL PRIMARY KEY,
         shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE,
         acceptance_type VARCHAR(50) NOT NULL CHECK (acceptance_type IN ('full', 'partial', 'renunciation')),
-        shares_accepted INTEGER,
-        shares_renounced INTEGER,
-        additional_shares_applied INTEGER,
+        shares_accepted DECIMAL(15,2),
+        shares_renounced DECIMAL(15,2),
+        additional_shares_applied DECIMAL(15,2),
         amount_payable DECIMAL(15,2),
         payment_account_number VARCHAR(50),
-        contact_name VARCHAR(255),
+        contact_name VARCHAR(255), 
         next_of_kin VARCHAR(255),
         daytime_phone VARCHAR(50),
         mobile_phone VARCHAR(50),
@@ -45,7 +75,81 @@ const initDatabase = async () => {
       )
     `);
 
-    // Create admin users table
+    // Create rights_submissions table with new structure
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS rights_submissions (
+        id SERIAL PRIMARY KEY,
+        shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE,
+        
+        -- Instructions
+        instructions_read BOOLEAN DEFAULT FALSE,
+        
+        -- Stockbroker & CHN details
+        stockbroker_id INTEGER REFERENCES stockbrokers(id),
+        chn VARCHAR(100) NOT NULL,
+        
+        -- Action choice
+        action_type VARCHAR(50) CHECK (action_type IN ('full_acceptance', 'renunciation_partial')),
+        
+        -- Full acceptance fields
+        accept_full BOOLEAN DEFAULT FALSE,
+        apply_additional BOOLEAN DEFAULT FALSE,
+        additional_shares DECIMAL(15,2),
+        additional_amount DECIMAL(15,2),
+        accept_smaller_allotment BOOLEAN DEFAULT FALSE,
+        payment_amount DECIMAL(15,2),
+        payment_bank_name VARCHAR(255),
+        payment_cheque_number VARCHAR(100),
+        payment_branch VARCHAR(255),
+        
+        -- Renunciation/Partial acceptance fields
+        shares_accepted DECIMAL(15,2),
+        amount_payable DECIMAL(15,2),
+        shares_renounced DECIMAL(15,2),
+        accept_partial BOOLEAN DEFAULT FALSE,
+        renounce_rights BOOLEAN DEFAULT FALSE,
+        trade_rights BOOLEAN DEFAULT FALSE,
+        
+        -- Personal details
+        contact_name VARCHAR(255),
+        next_of_kin VARCHAR(255),
+        daytime_phone VARCHAR(50),
+        mobile_phone VARCHAR(50),
+        email VARCHAR(255),
+        
+        -- Bank details for e-dividend
+        bank_name_edividend VARCHAR(255),
+        bank_branch_edividend VARCHAR(255),
+        account_number VARCHAR(50),
+        bvn VARCHAR(50),
+        
+        -- Corporate details
+        corporate_signatory_names TEXT,
+        corporate_designations TEXT,
+        
+        -- Signature type
+        signature_type VARCHAR(10) CHECK (signature_type IN ('single', 'joint')),
+        
+        -- Prefilled shareholder info
+        reg_account_number VARCHAR(50) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        holdings NUMERIC(15,2) NOT NULL,
+        rights_issue NUMERIC(15,2) NOT NULL,
+        holdings_after NUMERIC(15,2) NOT NULL,
+        amount_due NUMERIC(15,2) NOT NULL,
+        
+        -- File paths
+        filled_form_path VARCHAR(500),
+        receipt_path VARCHAR(500),
+        signature_paths TEXT[], -- Array to store multiple signature paths for joint accounts
+        
+        status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'rejected')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create admin users table (unchanged)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS admin_users (
         id SERIAL PRIMARY KEY,
@@ -57,43 +161,12 @@ const initDatabase = async () => {
       )
     `);
 
-    // Insert sample shareholders data
-    // const sampleShareholders = [
-    //   { reg_account_number: 'REG001', name: 'John Smith', holdings: 1000, rights_issue: 76 },
-    //   { reg_account_number: 'REG002', name: 'Jane Doe', holdings: 1500, rights_issue: 115 },
-    //   { reg_account_number: 'REG003', name: 'Michael Johnson', holdings: 2000, rights_issue: 153 },
-    //   { reg_account_number: 'REG004', name: 'Sarah Wilson', holdings: 800, rights_issue: 61 },
-    //   { reg_account_number: 'REG005', name: 'David Brown', holdings: 1200, rights_issue: 92 }
-    // ];
-
-    // for (const shareholder of sampleShareholders) {
-    //   await pool.query(`
-    //     INSERT INTO shareholders (reg_account_number, name, holdings, rights_issue)
-    //     VALUES ($1, $2, $3, $4)
-    //     ON CONFLICT (reg_account_number) DO NOTHING
-    //   `, [shareholder.reg_account_number, shareholder.name, shareholder.holdings, shareholder.rights_issue]);
-    // }
-
     // Insert sample admin user (password: admin123)
     await pool.query(`
       INSERT INTO admin_users (username, password_hash, email, role)
       VALUES ($1, $2, $3, $4)
       ON CONFLICT (username) DO NOTHING
     `, ['admin', '$2a$10$rQZ8K9mX2nL1vP3qR5sT7u', 'admin@initiates.com', 'admin']);
-
-    // Insert sample form submission
-    // await pool.query(`
-    //   INSERT INTO forms (
-    //     shareholder_id, acceptance_type, shares_accepted, amount_payable,
-    //     contact_name, email, signature_file, receipt_file, status
-    //   )
-    //   SELECT 
-    //     s.id, 'full', s.rights_issue, s.rights_issue * 50.0,
-    //     s.name, 'john.smith@email.com', 'signatures/sample_signature.jpg', 'receipts/sample_receipt.jpg', 'completed'
-    //   FROM shareholders s
-    //   WHERE s.reg_account_number = 'REG001'
-    //   ON CONFLICT DO NOTHING
-    // `);
 
     console.log('Database initialized successfully');
   } catch (error) {
@@ -102,4 +175,4 @@ const initDatabase = async () => {
   }
 };
 
-module.exports = initDatabase; 
+module.exports = initDatabase;

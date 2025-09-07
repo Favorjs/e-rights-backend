@@ -9,29 +9,23 @@ router.get('/dashboard', async (req, res) => {
     const shareholdersCountQuery = 'SELECT COUNT(*) FROM shareholders';
     const shareholdersCount = await pool.query(shareholdersCountQuery);
 
-    // Get forms statistics
-    const formsStatsQuery = `
-      SELECT 
-        COUNT(*) as total_forms,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_forms,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_forms,
-        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_forms
-      FROM forms
-    `;
-    const formsStats = await pool.query(formsStatsQuery);
-
-    const stats = formsStats.rows[0];
+    // Get total submissions count (forms + rights submissions)
+    const formsCountQuery = 'SELECT COUNT(*) FROM forms';
+    const rightsCountQuery = 'SELECT COUNT(*) FROM rights_submissions';
+    
+    const formsCount = await pool.query(formsCountQuery);
+    const rightsCount = await pool.query(rightsCountQuery);
+    
+    const totalSubmissions = parseInt(formsCount.rows[0].count) + parseInt(rightsCount.rows[0].count);
     const totalShareholders = parseInt(shareholdersCount.rows[0].count);
-    const completionRate = totalShareholders > 0 ? ((stats.completed_forms / totalShareholders) * 100).toFixed(1) : '0.0';
+    const rightsSubmissions = parseInt(rightsCount.rows[0].count);
 
     res.json({
       success: true,
       data: {
         totalShareholders,
-        completedForms: parseInt(stats.completed_forms),
-        pendingForms: parseInt(stats.pending_forms),
-        rejectedForms: parseInt(stats.rejected_forms),
-        completionRate: `${completionRate}%`
+        totalSubmissions,
+        rightsSubmissions
       }
     });
   } catch (error) {
@@ -79,6 +73,7 @@ router.get('/submissions', async (req, res) => {
         f.receipt_file,
         f.created_at,
         f.updated_at
+        f.amount_payable
       FROM forms f
       JOIN shareholders s ON f.shareholder_id = s.id
     `;
@@ -164,6 +159,7 @@ router.get('/submissions/:id', async (req, res) => {
         s.holdings,
         s.rights_issue,
         s.holdings_after
+        s.amount_payable
       FROM forms f
       JOIN shareholders s ON f.shareholder_id = s.id
       WHERE f.id = $1
@@ -285,4 +281,210 @@ router.get('/export', async (req, res) => {
   }
 });
 
-module.exports = router; 
+// Get individual rights submission details
+router.get('/rights-submissions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const query = `
+      SELECT *
+      FROM rights_submissions
+      WHERE id = $1
+    `;
+
+    const result = await pool.query(query, [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Rights submission not found' 
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error getting rights submission details:', error);
+    res.status(500).json({ 
+      error: 'Failed to get rights submission details',
+      message: error.message 
+    });
+  }
+});
+
+// Get rights submissions with pagination and filtering
+router.get('/rights-submissions', async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      search, 
+      status,
+      rightsClaiming, // New filter parameter
+      sortBy = 'created_at',
+      sortOrder = 'DESC'
+    } = req.query;
+    
+    const offset = (page - 1) * limit;
+    
+    let query = `
+      SELECT 
+        id,
+        shareholder_id,
+        chn,
+        action_type,
+        reg_account_number,
+        name,
+        
+        holdings,
+        rights_issue,
+        holdings_after,
+        amount_due,
+        filled_form_path,
+        receipt_path,
+        status,
+        created_at,
+        updated_at
+      FROM rights_submissions
+    `;
+    
+    let countQuery = `
+      SELECT COUNT(*) 
+      FROM rights_submissions
+    `;
+    
+    let whereConditions = [];
+    let queryParams = [];
+    let paramIndex = 1;
+    
+    if (search) {
+      whereConditions.push(`(LOWER(name) LIKE LOWER($${paramIndex}) OR reg_account_number LIKE $${paramIndex} OR chn LIKE $${paramIndex})`);
+      queryParams.push(`%${search}%`);
+      paramIndex++;
+    }
+    
+    if (status && status !== 'All Status') {
+      whereConditions.push(`status = $${paramIndex}`);
+      queryParams.push(status.toLowerCase());
+      paramIndex++;
+    }
+    
+    // Add rights claiming filter
+    if (rightsClaiming) {
+      if (rightsClaiming === 'full') {
+        whereConditions.push(`action_type = $${paramIndex}`);
+        queryParams.push('full_acceptance');
+      } else if (rightsClaiming === 'renounced') {
+        whereConditions.push(`action_type = $${paramIndex}`);
+        queryParams.push('renunciation_partial');
+      }
+      paramIndex++;
+    }
+    
+    if (whereConditions.length > 0) {
+      const whereClause = ' WHERE ' + whereConditions.join(' AND ');
+      query += whereClause;
+      countQuery += whereClause;
+    }
+    
+    // Add sorting
+    query += ` ORDER BY ${sortBy} ${sortOrder}`;
+    
+    // Add pagination
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(parseInt(limit), offset);
+    
+    // For count query, we need to remove the last two parameters (limit and offset)
+    const countParams = queryParams.slice(0, -2);
+    
+    const [result, countResult] = await Promise.all([
+      pool.query(query, queryParams),
+      countQuery === query ? { rows: [{ count: '0' }] } : pool.query(countQuery, countParams)
+    ]);
+    
+    const totalCount = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalCount / limit);
+    
+    res.json({
+      success: true,
+      data: result.rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        limit: parseInt(limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching rights submissions:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch rights submissions',
+      message: error.message 
+    });
+  }
+});
+
+// Export rights submissions data
+router.get('/export-rights', async (req, res) => {
+  try {
+    const { format = 'json', rightsClaiming } = req.query;
+    
+    let query = `
+      SELECT 
+        chn,
+        reg_account_number,
+        name,
+        holdings,
+        rights_issue,
+        action_type,
+        amount_due,
+        status,
+        created_at
+      FROM rights_submissions
+    `;
+    
+    let queryParams = [];
+    let paramIndex = 1;
+    
+    // Add rights claiming filter for export
+    if (rightsClaiming) {
+      if (rightsClaiming === 'full') {
+        query += ` WHERE action_type = $1`;
+        queryParams.push('full_acceptance');
+      } else if (rightsClaiming === 'renounced') {
+        query += ` WHERE action_type = $1`;
+        queryParams.push('renunciation_partial');
+      }
+    }
+    
+    query += ` ORDER BY created_at DESC`;
+    
+    const result = await pool.query(query, queryParams);
+    
+    if (format === 'csv') {
+      const csvHeader = 'CHN,REG ACCOUNT NUMBER,Name,Holdings,Rights Issue,Action Type,Amount Due,Status,Created At\n';
+      const csvData = result.rows.map(row => 
+        `"${row.chn}","${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},"${row.action_type || ''}",${row.amount_due},"${row.status}","${row.created_at}"`
+      ).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=rights_submissions.csv');
+      res.send(csvHeader + csvData);
+    } else {
+      res.json({
+        success: true,
+        data: result.rows,
+        count: result.rows.length
+      });
+    }
+  } catch (error) {
+    console.error('Error exporting rights data:', error);
+    res.status(500).json({ 
+      error: 'Failed to export rights data',
+      message: error.message 
+    });
+  }
+});
+
+module.exports = router;
