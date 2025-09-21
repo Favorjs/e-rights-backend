@@ -14,93 +14,93 @@ const createTransporter = () => {
 };
 
 // Send rights submission notification
-// const sendRightsSubmissionNotification = async (submissionData) => {
-//   try {
-//     const transporter = createTransporter();
+const sendRightsSubmissionNotification = async (submissionData) => {
+  try {
+    const transporter = createTransporter();
     
-//     const mailOptions = {
-//       from: process.env.EMAIL_USER || 'your-email@gmail.com',
-//       to: process.env.ADMIN_EMAIL || 'admin@company.com',
-//       subject: 'New Rights Issue Form Submission',
-//       html: `
-//         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-//           <h2 style="color: #2563eb;">New Rights Issue Form Submission</h2>
+    const mailOptions = {
+      from: process.env.EMAIL_USER || 'your-email@gmail.com',
+      to: process.env.ADMIN_EMAIL || 'admin@company.com',
+      subject: 'New Rights Issue Form Submission',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2563eb;">New Rights Issue Form Submission</h2>
           
-//           <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-//             <h3 style="color: #1e40af; margin-top: 0;">Shareholder Information</h3>
-//             <table style="width: 100%; border-collapse: collapse;">
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">CHN:</td>
-//                 <td style="padding: 8px 0;">${submissionData.chn}</td>
-//               </tr>
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">Reg Account Number:</td>
-//                 <td style="padding: 8px 0;">${submissionData.reg_account_number}</td>
-//               </tr>
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">Name:</td>
-//                 <td style="padding: 8px 0;">${submissionData.name}</td>
-//               </tr>
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">Holdings:</td>
-//                 <td style="padding: 8px 0;">${submissionData.holdings.toLocaleString()}</td>
-//               </tr>
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">Rights Issue:</td>
-//                 <td style="padding: 8px 0;">${submissionData.rights_issue}</td>
-//               </tr>
+          <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #1e40af; margin-top: 0;">Shareholder Information</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">CHN:</td>
+                <td style="padding: 8px 0;">${submissionData.chn}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">Reg Account Number:</td>
+                <td style="padding: 8px 0;">${submissionData.reg_account_number}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">Name:</td>
+                <td style="padding: 8px 0;">${submissionData.name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">Holdings:</td>
+                <td style="padding: 8px 0;">${submissionData.holdings.toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">Rights Issue:</td>
+                <td style="padding: 8px 0;">${submissionData.rights_issue}</td>
+              </tr>
             
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">Acceptance Type:</td>
-//                 <td style="padding: 8px 0; text-transform: capitalize;">${submissionData.acceptance_type}</td>
-//               </tr>
-//               <tr>
-//                 <td style="padding: 8px 0; font-weight: bold; color: #374151;">Amount Due:</td>
-//                 <td style="padding: 8px 0;">₦${submissionData.amount_due.toLocaleString()}</td>
-//               </tr>
-//             </table>
-//           </div>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">Acceptance Type:</td>
+                <td style="padding: 8px 0; text-transform: capitalize;">${submissionData.acceptance_type}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; color: #374151;">Amount Due:</td>
+                <td style="padding: 8px 0;">₦${submissionData.amount_due.toLocaleString()}</td>
+              </tr>
+            </table>
+          </div>
           
-//           <div style="background-color: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0;">
-//             <h3 style="color: #166534; margin-top: 0;">Files Uploaded</h3>
-//             <ul style="margin: 0; padding-left: 20px;">
-//               <li style="margin: 8px 0;">Filled Form: ${submissionData.filled_form_path ? '✅ Uploaded' : '❌ Not uploaded'}</li>
-//               <li style="margin: 8px 0;">Payment Receipt: ${submissionData.receipt_path ? '✅ Uploaded' : '❌ Not uploaded'}</li>
-//             </ul>
-//           </div>
+          <div style="background-color: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #166534; margin-top: 0;">Files Uploaded</h3>
+            <ul style="margin: 0; padding-left: 20px;">
+              <li style="margin: 8px 0;">Filled Form: ${submissionData.filled_form_path ? '✅ Uploaded' : '❌ Not uploaded'}</li>
+              <li style="margin: 8px 0;">Payment Receipt: ${submissionData.receipt_path ? '✅ Uploaded' : '❌ Not uploaded'}</li>
+            </ul>
+          </div>
           
-//           <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0;">
-//             <h3 style="color: #92400e; margin-top: 0;">Submission Details</h3>
-//             <p style="margin: 8px 0;"><strong>Submission ID:</strong> ${submissionData.id}</p>
-//             <p style="margin: 8px 0;"><strong>Submitted:</strong> ${new Date(submissionData.created_at).toLocaleString()}</p>
-//             <p style="margin: 8px 0;"><strong>Status:</strong> <span style="color: #059669; font-weight: bold;">${submissionData.status}</span></p>
-//           </div>
+          <div style="background-color: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #92400e; margin-top: 0;">Submission Details</h3>
+            <p style="margin: 8px 0;"><strong>Submission ID:</strong> ${submissionData.id}</p>
+            <p style="margin: 8px 0;"><strong>Submitted:</strong> ${new Date(submissionData.created_at).toLocaleString()}</p>
+            <p style="margin: 8px 0;"><strong>Status:</strong> <span style="color: #059669; font-weight: bold;">${submissionData.status}</span></p>
+          </div>
           
-//           <div style="text-align: center; margin: 30px 0;">
-//             <a href="${process.env.FRONTEND_URL || 'http://localhost:5001'}/admin" 
-//                style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-//               View in Admin Dashboard
-//             </a>
-//           </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5001'}/admin" 
+               style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View in Admin Dashboard
+            </a>
+          </div>
           
-//           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-//           <p style="color: #6b7280; font-size: 14px; text-align: center;">
-//             This is an automated notification from the Rights Issue Management System.
-//           </p>
-//         </div>
-//       `
-//     };
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+          <p style="color: #6b7280; font-size: 14px; text-align: center;">
+            This is an automated notification from the Rights Issue Management System.
+          </p>
+        </div>
+      `
+    };
 
-//     const info = await transporter.sendMail(mailOptions);
-//     console.log('Email notification sent:', info.messageId);
-//     return true;
-//   } catch (error) {
-//     console.error('Error sending email notification:', error);
-//     return false;
-//   }
-// };
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email notification sent:', info.messageId);
+    return true;
+  } catch (error) {
+    console.error('Error sending email notification:', error);
+    return false;
+  }
+};
 
-// Send regular form submission notification
+//Send regular form submission notification
 const sendFormSubmissionNotification = async (submissionData) => {
   try {
     const transporter = createTransporter();
@@ -272,7 +272,7 @@ const sendShareholderConfirmation = async (submissionData) => {
 };
 
 module.exports = {
-  // sendRightsSubmissionNotification,
+  sendRightsSubmissionNotification,
   sendFormSubmissionNotification,
   sendShareholderConfirmation
 };

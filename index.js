@@ -37,6 +37,9 @@ app.use(fileUpload({
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, '../client/build')));
+
 // Routes
 app.use('/api/shareholders', shareholderRoutes);
 app.use('/api/forms', formRoutes);
@@ -56,7 +59,7 @@ app.get('/api/health', (req, res) => {
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? [process.env.FRONTEND_URL, 'https://tip.apel.com.ng'] // Add your actual frontend domain
-    : 'http://localhost:3000',
+    : 'http://localhost:5001',
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -72,6 +75,12 @@ app.use(cors(corsOptions));
 //     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
 //   });
 // }
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/build/index.html'));
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {

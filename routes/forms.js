@@ -7,7 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 // Serve static files from uploads directory
 // app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-const { sendRightsSubmissionNotification, sendFormSubmissionNotification, sendShareholderConfirmation } = require('../services/emailService');
+const { sendRightsSubmissionNotification,  sendShareholderConfirmation } = require('../services/emailService');
 
 // Helper: generate filled rights PDF as Buffer from provided fields
 async function generateRightsPdfBuffer(formData) {
@@ -507,31 +507,31 @@ router.post('/', [
     }
 
     // Insert form submission
-    const insertQuery = `
-      INSERT INTO forms (
-        shareholder_id, acceptance_type, shares_accepted, shares_renounced,
-        additional_shares_applied, amount_payable, payment_account_number,
-        contact_name, next_of_kin, daytime_phone, mobile_phone, email,
-        bank_name, bank_branch, account_number, bvn, signature_file, receipt_file
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-      RETURNING *
-    `;
+    // const insertQuery = `
+    //   INSERT INTO forms (
+    //     shareholder_id, acceptance_type, shares_accepted, shares_renounced,
+    //     additional_shares_applied, amount_payable, payment_account_number,
+    //     contact_name, next_of_kin, daytime_phone, mobile_phone, email,
+    //     bank_name, bank_branch, account_number, bvn, signature_file, receipt_file
+    //   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    //   RETURNING *
+    // `;
 
-    const result = await pool.query(insertQuery, [
-      shareholder_id, acceptance_type, shares_accepted, shares_renounced,
-      additional_shares_applied, amount_payable, payment_account_number,
-      contact_name, next_of_kin, daytime_phone, mobile_phone, email,
-      bank_name, bank_branch, account_number, bvn, signature_file, receipt_file
-    ]);
+    // const result = await pool.query(insertQuery, [
+    //   shareholder_id, acceptance_type, shares_accepted, shares_renounced,
+    //   additional_shares_applied, amount_payable, payment_account_number,
+    //   contact_name, next_of_kin, daytime_phone, mobile_phone, email,
+    //   bank_name, bank_branch, account_number, bvn, signature_file, receipt_file
+    // ]);
 
     // Send email notification
-    const submissionData = result.rows[0];
-    try {
-      await sendFormSubmissionNotification(submissionData);
-    } catch (emailError) {
-      console.error('Failed to send email notification:', emailError);
-      // Don't fail the request if email fails
-    }
+    // const submissionData = result.rows[0];
+    // try {
+    //   await sendFormSubmissionNotification(submissionData);
+    // } catch (emailError) {
+    //   console.error('Failed to send email notification:', emailError);
+    //   // Don't fail the request if email fails
+    // }
 
     res.status(201).json({
       success: true,
