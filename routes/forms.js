@@ -8,15 +8,46 @@ const path = require('path');
 // Serve static files from uploads directory
 // app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const { sendRightsSubmissionNotification,  sendShareholderConfirmation } = require('../services/emailService');
+const FileUpload = require('../utils/fileUpload'); // Cloudinary utility
 
 // Helper: generate filled rights PDF as Buffer from provided fields
 async function generateRightsPdfBuffer(formData) {
-  const templatePath = path.join(__dirname, '../uploads/forms/TIP RIGHTS ISSUE.pdf');
-  const pdfBytes = await fs.readFile(templatePath);
-  const pdfDoc = await PDFDocument.load(pdfBytes);
-
+  let pdfBytes;
+  let pdfDoc;
+  let form;
+  
+  // First, ensure we have a valid PDF document
   try {
-    const form = pdfDoc.getForm();
+    // In production, get template from Cloudinary; in development, use local fallback
+    if (process.env.NODE_ENV === 'production') {
+      // Download template from Cloudinary
+      const cloudinary = require('../config/cloudinary');
+      const templateUrl = cloudinary.url('rights-submissions/rights-forms/TIP_RIGHTS_ISSUE', { format: 'pdf' });
+      const response = await fetch(templateUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
+      }
+      pdfBytes = await response.arrayBuffer();
+    } else {
+      // Development fallback - local file
+      const templatePath = path.join(__dirname, '../uploads/forms/TIP RIGHTS ISSUE.pdf');
+      try {
+        pdfBytes = await fs.readFile(templatePath);
+      } catch (error) {
+        throw new Error(`Failed to read PDF template: ${error.message}`);
+      }
+    }
+
+    // Load the PDF document and get the form
+    pdfDoc = await PDFDocument.load(pdfBytes);
+    form = pdfDoc.getForm();
+    
+    // If we couldn't get the form, we can't continue
+    if (!form) {
+      throw new Error('Failed to get form from PDF document');
+    }
+    
+    // Helper function to set form fields if they exist
     const setFieldIfExists = (fieldName, value) => {
       try {
         const field = form.getField(fieldName);
@@ -24,12 +55,12 @@ async function generateRightsPdfBuffer(formData) {
           field.setText(String(value ?? ''));
           return true;
         }
-      } catch (_) {}
+      } catch (_) {
+        // Ignore errors for missing fields
+      }
       return false;
     };
 
- 
-   
     // Basic shareholder info
     setFieldIfExists('reg_account_number', formData.reg_account_number) ||
       setFieldIfExists('Registration account number', formData.reg_account_number);
@@ -146,21 +177,54 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('signature_type', formData.signature_type === 'single' ? 'Single' : 'Joint') ||
       setFieldIfExists('Signature type', formData.signature_type === 'single' ? 'Single' : 'Joint');
 
-    form.flatten();
-  } catch (_) {
-    // ignore if form fields not present; we still return original template
-  } 
-  const modifiedPdf = await pdfDoc.save();
-  return Buffer.from(modifiedPdf);
+    // Only try to flatten if we have a valid form
+    if (form) {
+      form.flatten();
+    } else {
+      console.warn('No form found in PDF document, skipping flattening');
+    }
+    
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    // If we have bytes but no doc, try to create a basic doc
+    if (!pdfDoc && pdfBytes) {
+      try {
+        pdfDoc = await PDFDocument.load(pdfBytes);
+      } catch (loadError) {
+        console.error('Failed to load fallback PDF:', loadError);
+        throw new Error(`Failed to generate PDF: ${error.message}`);
+      }
+    }
+    // If we still don't have a valid PDF doc, re-throw the original error
+    if (!pdfDoc) {
+      throw new Error(`Failed to generate PDF: ${error.message}`);
+    }
+  }
+
+  // Save and return the PDF
+  if (pdfDoc) {
+    const modifiedPdf = await pdfDoc.save();
+    return Buffer.from(modifiedPdf);
+  } else {
+    throw new Error('Failed to create PDF document');
+  }
 }
 
-// Helper: persist a PDF buffer to uploads/forms and return relative path
-async function savePdfBufferToUploadsForms(pdfBuffer) {
-  const fileName = `filled-form-${Date.now()}-${Math.floor(Math.random() * 1000000000)}.pdf`;
-  const absPath = path.join(__dirname, '../uploads/forms', fileName);
-  await fs.writeFile(absPath, pdfBuffer);
-  return `forms/${fileName}`;
+// Helper: Upload PDF buffer to Cloudinary and return public ID
+async function uploadPdfToCloudinary(pdfBuffer, fileName) {
+  try {
+    const result = await FileUpload.uploadBuffer(
+      pdfBuffer, 
+      fileName, 
+      'rights-submissions/filled-forms'
+    );
+    return result.public_id;
+  } catch (error) {
+    console.error('Error uploading PDF to Cloudinary:', error);
+    throw error;
+  }
 }
+
 
 // Helper function to clean numeric fields
 const cleanNumericField = (value) => {
@@ -169,12 +233,199 @@ const cleanNumericField = (value) => {
   return isNaN(num) ? null : num;
 };
 
+// Helper function to trim strings to max length
+const trimToMaxLength = (str, maxLength = 500) => {
+  if (typeof str !== 'string') return str;
+  return str.length > maxLength ? str.substring(0, maxLength) : str;
+};
+
+// Handle receipt upload to Cloudinary
+// Helper function with retry logic for Cloudinary uploads
+async function uploadWithRetry(uploadFunction, maxRetries = 3) {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Upload attempt ${attempt} of ${maxRetries}`);
+      return await uploadFunction();
+    } catch (error) {
+      lastError = error;
+      console.warn(`Upload attempt ${attempt} failed:`, error.message);
+      
+      if (attempt < maxRetries) {
+        // Wait before retrying (exponential backoff)
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        console.log(`Waiting ${delay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  throw lastError; // All retries failed
+}
+
+// Updated handleReceiptUpload with retry logic
+async function handleReceiptUpload(files) {
+  if (!files || !files.receipt) return null;
+
+  try {
+    const receiptFile = files.receipt;
+    
+    // Get the file data as a buffer (same as before)
+    let fileBuffer;
+    let fileName = receiptFile.name || `receipt-${Date.now()}`;
+    
+    if (receiptFile.tempFilePath) {
+      const fs = require('fs').promises;
+      fileBuffer = await fs.readFile(receiptFile.tempFilePath);
+    } else if (receiptFile.data) {
+      fileBuffer = receiptFile.data;
+    } else if (receiptFile.buffer) {
+      fileBuffer = receiptFile.buffer;
+    } else {
+      throw new Error('No valid file data found in the receipt upload');
+    }
+    
+    // Validate file size
+    const maxFileSize = 10 * 1024 * 1024; // 10MB
+    if (fileBuffer.length > maxFileSize) {
+      throw new Error(`File size ${(fileBuffer.length / 1024 / 1024).toFixed(2)}MB exceeds maximum allowed size of 10MB`);
+    }
+    
+    // Ensure valid file extension
+    if (!fileName.includes('.')) {
+      const mime = receiptFile.mimetype || '';
+      const ext = mime.split('/')[1] || 'bin';
+      fileName = `${fileName}.${ext}`;
+    }
+    
+    console.log(`Uploading receipt to Cloudinary: ${fileName} (${fileBuffer.length} bytes)`);
+    
+    // Use retry logic for the upload
+    const receiptResult = await uploadWithRetry(async () => {
+      return await FileUpload.uploadReceipt(fileBuffer, fileName);
+    }, 3); // Retry up to 3 times
+    
+    console.log(`Receipt uploaded successfully: ${receiptResult.public_id}`);
+    return receiptResult.public_id;
+    
+  } catch (error) {
+    console.error('Error uploading receipt to Cloudinary:', error);
+    
+    // Improved error messages
+    if (error.http_code === 499 || error.name === 'TimeoutError') {
+      throw new Error('Upload timeout. The file might be too large or your internet connection is slow. Please try a smaller file.');
+    } else if (error.http_code === 400) {
+      throw new Error('Invalid file format. Please upload JPG, PNG, GIF, or PDF files only.');
+    } else if (error.message.includes('File size')) {
+      throw new Error(error.message);
+    } else if (error.message.includes('ENOTFOUND') || error.message.includes('Network')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
+    } else {
+      throw new Error('Upload failed. Please try again with a different file.');
+    }
+  }
+}
+// Handle file uploads to Cloudinary
+async function handleFileUpload(files, fieldName, folder) {
+  if (!files || !files[fieldName]) return null;
+
+  try {
+    const file = files[fieldName];
+    
+    // Get the file data as a buffer
+    let fileBuffer;
+    let fileName = file.name || `${fieldName}-${Date.now()}`;
+    
+    // Check if we're using temp files (from express-fileupload)
+    if (file.tempFilePath) {
+      // Read the temp file into a buffer
+      const fs = require('fs').promises;
+      fileBuffer = await fs.readFile(file.tempFilePath);
+    } else if (file.data) {
+      // Use the data buffer directly
+      fileBuffer = file.data;
+    } else if (file.buffer) {
+      // Handle case where file is already a buffer
+      fileBuffer = file.buffer;
+    } else {
+      throw new Error(`No valid file data found for ${fieldName}`);
+    }
+    
+    // Ensure we have a valid file extension
+    if (!fileName.includes('.')) {
+      // Try to determine extension from mimetype if no extension
+      const mime = file.mimetype || '';
+      const ext = mime.split('/')[1] || 'bin';
+      fileName = `${fileName}.${ext}`;
+    }
+    
+    // Upload the file buffer to Cloudinary
+    const result = await FileUpload.uploadBuffer(
+      fileBuffer,
+      fileName,
+      `rights-submissions/${folder}`
+    );
+    
+    return result.public_id;
+  } catch (error) {
+    console.error(`Error uploading ${fieldName} to Cloudinary:`, error);
+    throw new Error(`Failed to upload ${fieldName}. Please try again with a valid file.`);
+  }
+}
+
+// Handle multiple signature uploads
+async function handleSignatureUploads(files) {
+  const signaturePaths = [];
+  
+  if (!files) return signaturePaths;
+  
+  try {
+    // Handle single signature (signature_0 for consistency with client-side)
+    if (files.signature_0) {
+      const signatureId = await handleFileUpload(files, 'signature_0', 'signatures');
+      if (signatureId) signaturePaths.push(signatureId);
+    }
+    
+    // Handle multiple signatures (signature_0, signature_1, etc.)
+    let index = 0;
+    while (files[`signature_${index}`]) {
+      const signatureId = await handleFileUpload(files, `signature_${index}`, 'signatures');
+      if (signatureId) signaturePaths.push(signatureId);
+      index++;
+    }
+    
+    // Backward compatibility with old format (signature1, signature2, etc.)
+    let i = 1;
+    while (files[`signature${i}`] && signaturePaths.length === 0) {
+      const signatureId = await handleFileUpload(files, `signature${i}`, 'signatures');
+      if (signatureId) signaturePaths.push(signatureId);
+      i++;
+    }
+    
+    return signaturePaths;
+  } catch (error) {
+    console.error('Error uploading signatures:', error);
+    // If we have partial uploads, clean them up
+    if (signaturePaths.length > 0) {
+      try {
+        await Promise.all(signaturePaths.map(publicId => 
+          FileUpload.deleteFile(publicId).catch(console.error)
+        ));
+      } catch (cleanupError) {
+        console.error('Error cleaning up failed signature uploads:', cleanupError);
+      }
+    }
+    throw new Error('Failed to upload one or more signatures. Please try again with valid image files.');
+  }
+}
+
 // Generate payment account number
-// const generatePaymentAccountNumber = () => {
-//   const timestamp = Date.now().toString();
-//   const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-//   return `238${timestamp.slice(-6)}${random}`;
-// };
+const generatePaymentAccountNumber = () => {
+  const timestamp = Date.now().toString();
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `238${timestamp.slice(-6)}${random}`;
+};
 
 // Preview rights form PDF (returns PDF buffer without saving)
 router.post('/preview-rights', async (req, res) => {
@@ -228,6 +479,7 @@ router.post('/preview-rights', async (req, res) => {
 router.post('/submit-rights', async (req, res) => {
   try {
     let formData = req.body;
+    const files = req.files;
     
     // Clean numeric fields
     const numericFields = [
@@ -247,25 +499,22 @@ router.post('/submit-rights', async (req, res) => {
     formData = cleanedFormData;
 
     // Calculate amount payable based on shares accepted and price per share
-    const pricePerShare = 1.50; // Set your price per share here or get it from config
+    const pricePerShare = 1.50;
     
     if (formData.action_type === 'full_acceptance') {
-      // For full acceptance, amount payable is rights_issue * price per share
       formData.amount_payable = (formData.rights_issue * pricePerShare).toFixed(2);
       formData.shares_accepted = formData.rights_issue;
       formData.shares_renounced = 0;
     } else if (formData.action_type === 'partial_acceptance') {
-      // For partial acceptance, amount payable is shares_accepted * price per share
       formData.amount_payable = (formData.shares_accepted * pricePerShare).toFixed(2);
       formData.shares_renounced = formData.rights_issue - formData.shares_accepted;
     } else if (formData.action_type === 'renounce') {
-      // For renunciation, amount payable is 0
       formData.amount_payable = 0;
       formData.shares_accepted = 0;
       formData.shares_renounced = formData.rights_issue;
     }
 
-    // Validate required fields based on action type
+    // Validate required fields
     let requiredFields = [
       'shareholder_id', 'stockbroker', 'chn', 'action_type', 'instructions_read',
       'contact_name', 'next_of_kin', 'daytime_phone', 'mobile_phone', 'email',
@@ -301,52 +550,53 @@ router.post('/submit-rights', async (req, res) => {
         message: 'A rights issue form has already been submitted for this shareholder' 
       });
     }
+    let filledFormPublicId; 
+   // Upload files to Cloudinary
+// Upload files to Cloudinary with better error handling
+  // Upload files to Cloudinary
+  let receiptPublicId = null;
+  if (files && files.receipt) {
+    receiptPublicId = await handleReceiptUpload(files);
+  } else if (formData.action_type !== 'renounce') {
+    return res.status(400).json({
+      error: 'Receipt required',
+      message: 'Payment receipt is required to submit the form'
+    });
+  }
 
-    // Handle receipt upload
-    let receiptPath = null;
-    if (req.files && req.files.receipt) {
-      const receipt = req.files.receipt;
-      const receiptExt = path.extname(receipt.name);
-      const receiptFileName = `receipt-${Date.now()}-${Math.floor(Math.random() * 1000000000)}${receiptExt}`;
-      receiptPath = path.join(__dirname, '../uploads/receipts', receiptFileName);
-      await receipt.mv(receiptPath);
-      receiptPath = `receipts/${receiptFileName}`;
-    } else if (formData.action_type !== 'renounce') {
-      return res.status(400).json({
-        error: 'Receipt required',
-        message: 'Payment receipt is required to submit the form'
-      });
-    }
 
-    // Handle signature upload(s)
-    const signaturePaths = [];
-    if (req.files) {
-      // Get all signature files
-      const signatureFiles = Object.entries(req.files)
-        .filter(([key]) => key.startsWith('signature_'))
-        .map(([_, file]) => file);
+// Upload signatures to Cloudinary
+ const signaturePublicIds = await handleSignatureUploads(files);
+ if (signaturePublicIds.length === 0) {
+   return res.status(400).json({
+     error: 'Signature required',
+     message: 'At least one signature is required to submit the form'
+   });
+ }
+// Generate filled PDF and upload to Cloudinary
 
-      if (signatureFiles.length === 0) {
-        return res.status(400).json({
-          error: 'Signature required',
-          message: 'At least one signature is required to submit the form'
-        });
-      }
+// Generate filled PDF and upload to Cloudinary
+try {
+  const pdfBuffer = await generateRightsPdfBuffer(formData);
+  const fileName = `rights-form-${formData.reg_account_number}-${Date.now()}.pdf`;
 
-      for (const signature of signatureFiles) {
-        const signatureExt = path.extname(signature.name);
-        const signatureFileName = `signature-${Date.now()}-${Math.floor(Math.random() * 1000000000)}${signatureExt}`;
-        const signatureFilePath = path.join(__dirname, '../uploads/signatures', signatureFileName);
-        await signature.mv(signatureFilePath);
-        signaturePaths.push(`signatures/${signatureFileName}`);
-      }
-    }
+  // FIX: Get the Cloudinary result and extract the public_id
+  const cloudinaryResult = await FileUpload.uploadBuffer(
+    pdfBuffer,
+    fileName,
+    'rights-submissions/filled-forms'
+  );
+  filledFormPublicId = cloudinaryResult.public_id; // Extract just the public_id
+  console.log(`✅ PDF uploaded: ${filledFormPublicId}`);
+} catch (pdfError) {
+  console.error('Error generating or uploading PDF:', pdfError);
+  return res.status(500).json({ 
+    error: 'Failed to generate filled form',
+    message: 'PDF generation failed. Please try again.'
+  });
+}
 
-    // Generate filled PDF from form data
-    const pdfBuffer = await generateRightsPdfBuffer(formData);
-    const filledFormPath = await savePdfBufferToUploadsForms(pdfBuffer);
-
-    // Insert rights submission with all form data
+    // Insert rights submission with Cloudinary public IDs
     const insertQuery = `
       INSERT INTO rights_submissions (
         shareholder_id, instructions_read, stockbroker_id, chn, action_type,
@@ -367,30 +617,76 @@ router.post('/submit-rights', async (req, res) => {
       RETURNING *
     `;
 
-    const result = await pool.query(insertQuery, [
-      formData.shareholder_id, formData.instructions_read, formData.stockbroker, formData.chn, formData.action_type,
-      formData.accept_full, formData.apply_additional, formData.additional_shares, formData.additional_amount,
-      formData.accept_smaller_allotment, formData.payment_amount, formData.bank_name, formData.cheque_number, formData.branch,
-      formData.shares_accepted, formData.amount_payable, formData.shares_renounced, formData.accept_partial, formData.renounce_rights, formData.trade_rights,
-      formData.contact_name, formData.next_of_kin, formData.daytime_phone, formData.mobile_phone, formData.email,
-      formData.bank_name_edividend, formData.bank_branch_edividend, formData.account_number, formData.bvn,
-      formData.corporate_signatory_names, formData.corporate_designations,
-      formData.signature_type, formData.reg_account_number, formData.name, formData.holdings, formData.rights_issue,
-      formData.holdings_after, formData.amount_due, filledFormPath, receiptPath, signaturePaths
-    ]);
+    // Prepare data for insertion, trimming any strings that are too long
+    const insertData = [
+      formData.shareholder_id, 
+      formData.instructions_read, 
+     trimToMaxLength(formData.stockbroker), 
+     trimToMaxLength(formData.chn), 
+     trimToMaxLength(formData.action_type),
+      formData.accept_full, 
+      formData.apply_additional, 
+      formData.additional_shares, 
+      formData.additional_amount,
+      formData.accept_smaller_allotment, 
+      formData.payment_amount, 
+      trimToMaxLength(formData.bank_name), 
+      trimToMaxLength(formData.cheque_number), 
+      trimToMaxLength(formData.branch),
+      formData.shares_accepted, 
+      formData.amount_payable, 
+      formData.shares_renounced, 
+      formData.accept_partial, 
+      formData.renounce_rights, 
+      formData.trade_rights,
+      trimToMaxLength(formData.contact_name), 
+      trimToMaxLength(formData.next_of_kin), 
+      trimToMaxLength(formData.daytime_phone), 
+      trimToMaxLength(formData.mobile_phone), 
+      trimToMaxLength(formData.email),
+      trimToMaxLength(formData.bank_name_edividend), 
+      trimToMaxLength(formData.bank_branch_edividend), 
+      trimToMaxLength(formData.account_number), 
+      trimToMaxLength(formData.bvn),
+      trimToMaxLength(formData.corporate_signatory_names), 
+      trimToMaxLength(formData.corporate_designations),
+      trimToMaxLength(formData.signature_type), 
+      trimToMaxLength(formData.reg_account_number), 
+      trimToMaxLength(formData.name), 
+      formData.holdings, 
+      formData.rights_issue,
+      formData.holdings_after, 
+      formData.amount_due, 
+     trimToMaxLength(filledFormPublicId, 500), 
+      trimToMaxLength(receiptPublicId, 500), 
+      signaturePublicIds
+    ];
+
+    const result = await pool.query(insertQuery, insertData);
 
     const submissionData = result.rows[0];
 
-    // Send email notifications
+    // Generate Cloudinary URLs for email attachments
+    const cloudinary = require('../config/cloudinary');
+    const filledFormUrl = cloudinary.url(filledFormPublicId, {
+      secure: true,
+      flags: 'attachment:filled_rights_form.pdf'
+    });
+
+    // Send email notifications with Cloudinary URLs
     try {
       // Send notification to admin
-      await sendRightsSubmissionNotification(submissionData);
+      await sendRightsSubmissionNotification({
+        ...submissionData,
+        filled_form_url: filledFormUrl
+      });
       
       // Send confirmation to shareholder with filled form
       await sendShareholderConfirmation({
         ...submissionData,
         email: formData.email,
-        name: formData.name || formData.contact_name
+        name: formData.name || formData.contact_name,
+        filled_form_url: filledFormUrl
       });
     } catch (emailError) {
       console.error('Failed to send email notifications:', emailError);
@@ -411,6 +707,127 @@ router.post('/submit-rights', async (req, res) => {
   }
 });
 
+// Get file download URL from Cloudinary
+router.get('/download/:publicId', async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    
+    const cloudinary = require('../config/cloudinary');
+    const downloadUrl = cloudinary.url(publicId, {
+      secure: true,
+      flags: 'attachment'
+    });
+
+    res.json({
+      success: true,
+      data: {
+        downloadUrl: downloadUrl
+      }
+    });
+  } catch (error) {
+    console.error('Error generating download URL:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate download URL',
+      message: error.message 
+    });
+  }
+});
+
+
+// Add this route to forms.js for file downloads
+
+// In your server routes (e.g., routes/forms.js or routes/uploads.js)
+router.get('/download-file/:publicId', async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    const { filename } = req.query;
+    
+    // Get the file from Cloudinary
+    const result = await cloudinary.api.resource(publicId, {
+      resource_type: 'raw'
+    });
+    
+    // Set the appropriate headers
+    res.setHeader('Content-Type', result.format ? `application/${result.format}` : 'application/octet-stream');
+    if (filename) {
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    }
+    
+    // Stream the file
+    const response = await axios.get(result.secure_url, { responseType: 'stream' });
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to download file',
+      message: error.message 
+    });
+  }
+});
+
+router.get('/stream-file/:publicId', async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    const { filename } = req.query;
+    
+    // Get the file from Cloudinary
+    const result = await cloudinary.api.resource(publicId);
+    
+    // Set the appropriate headers
+    res.setHeader('Content-Type', result.format ? `image/${result.format}` : 'image/jpeg');
+    if (filename) {
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    }
+    
+    // Stream the file
+    const response = await axios.get(result.secure_url, { responseType: 'stream' });
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Error streaming file:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to stream file',
+      message: error.message 
+    });
+  }
+});
+
+// Alternative: Stream file through your server (if redirect doesn't work)
+router.get('/stream-file/:publicId', async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    const { filename } = req.query;
+
+    const cloudinary = require('../config/cloudinary');
+    const fileUrl = cloudinary.url(publicId, { secure: true });
+
+    const response = await fetch(fileUrl);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch file from Cloudinary');
+    }
+
+    // Set appropriate headers
+    const contentDisposition = filename 
+      ? `attachment; filename="${filename}"`
+      : 'attachment';
+    
+    res.setHeader('Content-Disposition', contentDisposition);
+    res.setHeader('Content-Type', response.headers.get('content-type'));
+    
+    // Stream the file
+    const arrayBuffer = await response.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+    
+  } catch (error) {
+    console.error('Error streaming file:', error);
+    res.status(500).json({ 
+      error: 'Failed to download file',
+      message: error.message 
+    });
+  }
+});
 // Get stockbrokers list
 router.get('/stockbrokers', async (req, res) => {
   try {
@@ -426,6 +843,58 @@ router.get('/stockbrokers', async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to fetch stockbrokers',
       message: error.message 
+    });
+  }
+});
+
+// Upload form template to Cloudinary (admin function)
+router.post('/upload-template', async (req, res) => {
+  try {
+    if (!req.files || !req.files.template) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
+    }
+
+    const templateFile = req.files.template;
+    const result = await FileUpload.uploadToCloudinary(templateFile.tempFilePath, 'rights-forms');
+
+    res.json({
+      success: true,
+      message: 'Template uploaded successfully to Cloudinary',
+      data: {
+        publicId: result.public_id,
+        url: result.secure_url
+      }
+    });
+  } catch (error) {
+    console.error('Error uploading template:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading template'
+    });
+  }
+});
+
+// Serve form template from Cloudinary
+router.get('/form-template', async (req, res) => {
+  try {
+    const cloudinary = require('../config/cloudinary');
+    const downloadUrl = cloudinary.url('rights-forms/TIP_RIGHTS_ISSUE', {
+      secure: true,
+      flags: 'attachment:TIP_RIGHTS_ISSUE_FORM.pdf'
+    });
+
+    res.json({
+      success: true,
+      downloadUrl: downloadUrl
+    });
+  } catch (error) {
+    console.error('Error serving form template:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error serving form template'
     });
   }
 });
@@ -690,23 +1159,12 @@ router.post('/generate-rights-form', async (req, res) => {
         try {
           const field = form.getField(fieldName);
           if (field) {
-            field.setText(value.toString());
-            console.log(`Set field '${fieldName}' to '${value}'`);
-            return true;
-          }
-        } catch (e) {
-          console.warn(`Could not set field '${fieldName}':`, e.message);
         }
-        return false;
-      };
-      
-      // Try different field name variations
-      setFieldIfExists('shareholderName', shareholderName) ||
-      setFieldIfExists('Shareholder Name', shareholderName) ||
-      setFieldIfExists('Name', shareholderName);
-      
-      setFieldIfExists('holdings', holdings.toLocaleString()) ||
-      setFieldIfExists('Shares Held', holdings.toLocaleString());
+      } catch (e) {
+        console.warn(`Could not set field '${fieldName}':`, e.message);
+      }
+      return false;
+    };
       
       setFieldIfExists('rightsIssue', rightsIssue.toLocaleString()) ||
       setFieldIfExists('Rights Allotted', rightsIssue.toLocaleString());
@@ -722,14 +1180,19 @@ router.post('/generate-rights-form', async (req, res) => {
       // Continue even if form processing fails
     }
     
-    // 4. Save the modified PDF
-    const modifiedPdf = await pdfDoc.save();
-    
+    // Save the filled PDF
+    try {
+      const filledPdfBytes = await pdfDoc.save();
+      return filledPdfBytes;
+    } catch (error) {
+      throw new Error(`Failed to save filled PDF: ${error.message}`);
+    }
+
     // 5. Send the PDF with proper headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="TIP_RIGHTS_${shareholderName.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.pdf"`);
-    res.setHeader('Content-Length', modifiedPdf.length);
-    res.send(Buffer.from(modifiedPdf));
+    res.setHeader('Content-Length', filledPdfBytes.length);
+    res.send(Buffer.from(filledPdfBytes));
     
   } catch (error) {
     console.error('PDF generation error:', error);

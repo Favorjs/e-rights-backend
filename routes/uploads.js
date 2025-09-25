@@ -1,81 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const FileUpload = require('../utils/fileUpload');
 
-// Ensure upload directories exist
-const uploadsDir = path.join(__dirname, '../../uploads');
-const signaturesDir = path.join(uploadsDir, 'signatures');
-const receiptsDir = path.join(uploadsDir, 'receipts');
-
-[uploadsDir, signaturesDir, receiptsDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Determine destination based on file type
-    if (file.fieldname === 'signature') {
-      cb(null, signaturesDir);
-    } else if (file.fieldname === 'receipt') {
-      cb(null, receiptsDir);
-    } else {
-      cb(null, uploadsDir);
-    }
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-  }
-});
-
-// File filter function
-const fileFilter = (req, file, cb) => {
-  // Allow only image and PDF files
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf'];
-  
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and PDF files are allowed.'), false);
-  }
-};
-
-// Configure multer
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
-});
-
-// Upload signature
-router.post('/signature', upload.single('signature'), (req, res) => {
+// Upload signature to Cloudinary
+router.post('/signature', async (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.files || !req.files.signature) {
       return res.status(400).json({ 
         error: 'No signature file uploaded' 
       });
     }
 
-    const filePath = `signatures/${req.file.filename}`;
-    
+    const signatureFile = req.files.signature;
+    const result = await FileUpload.uploadSignature(
+      signatureFile.data,
+      signatureFile.name
+    );
+
     res.json({
       success: true,
-      message: 'Signature uploaded successfully',
+      message: 'Signature uploaded successfully to Cloudinary',
       data: {
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        filePath: filePath,
-        size: req.file.size,
-        mimetype: req.file.mimetype
+        publicId: result.public_id,
+        url: result.secure_url,
+        folder: FileUpload.folders.SIGNATURES,
+        originalName: signatureFile.name,
+        size: signatureFile.size,
+        mimetype: signatureFile.mimetype
       }
     });
   } catch (error) {
@@ -87,26 +38,32 @@ router.post('/signature', upload.single('signature'), (req, res) => {
   }
 });
 
+// Upload receipt to Cloudinary
 // Upload receipt
-router.post('/receipt', upload.single('receipt'), (req, res) => {
+router.post('/receipt', async (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.files || !req.files.receipt) {
       return res.status(400).json({ 
         error: 'No receipt file uploaded' 
       });
     }
 
-    const filePath = `receipts/${req.file.filename}`;
-    
+    const receiptFile = req.files.receipt;
+    const result = await FileUpload.uploadReceipt(
+      receiptFile.data,
+      receiptFile.name
+    );
+
     res.json({
       success: true,
-      message: 'Receipt uploaded successfully',
+      message: 'Receipt uploaded successfully to Cloudinary',
       data: {
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        filePath: filePath,
-        size: req.file.size,
-        mimetype: req.file.mimetype
+        publicId: result.public_id,
+        url: result.secure_url,
+        folder: FileUpload.folders.RECEIPTS,
+        originalName: receiptFile.name,
+        size: receiptFile.size,
+        mimetype: receiptFile.mimetype
       }
     });
   } catch (error) {
@@ -117,39 +74,55 @@ router.post('/receipt', upload.single('receipt'), (req, res) => {
     });
   }
 });
-
-// Upload both signature and receipt
-router.post('/both', upload.fields([
-  { name: 'signature', maxCount: 1 },
-  { name: 'receipt', maxCount: 1 }
-]), (req, res) => {
+// Upload both signature and receipt to Cloudinary
+router.post('/both', async (req, res) => {
   try {
-    const files = req.files;
+    if (!req.files) {
+      return res.status(400).json({ 
+        error: 'No files uploaded' 
+      });
+    }
+
     const uploadedFiles = {};
+    const files = req.files;
 
     if (files.signature) {
+      const signatureFile = Array.isArray(files.signature) ? files.signature[0] : files.signature;
+      const signatureResult = await FileUpload.uploadBuffer(
+        signatureFile.data,
+        signatureFile.name,
+        'rights-submissions/signatures'
+      );
+      
       uploadedFiles.signature = {
-        filename: files.signature[0].filename,
-        originalName: files.signature[0].originalname,
-        filePath: `signatures/${files.signature[0].filename}`,
-        size: files.signature[0].size,
-        mimetype: files.signature[0].mimetype
+        publicId: signatureResult.public_id,
+        url: signatureResult.secure_url,
+        originalName: signatureFile.name,
+        size: signatureFile.size,
+        mimetype: signatureFile.mimetype
       };
     }
 
     if (files.receipt) {
+      const receiptFile = Array.isArray(files.receipt) ? files.receipt[0] : files.receipt;
+      const receiptResult = await FileUpload.uploadBuffer(
+        receiptFile.data,
+        receiptFile.name,
+        'rights-submissions/receipts'
+      );
+      
       uploadedFiles.receipt = {
-        filename: files.receipt[0].filename,
-        originalName: files.receipt[0].originalname,
-        filePath: `receipts/${files.receipt[0].filename}`,
-        size: files.receipt[0].size,
-        mimetype: files.receipt[0].mimetype
+        publicId: receiptResult.public_id,
+        url: receiptResult.secure_url,
+        originalName: receiptFile.name,
+        size: receiptFile.size,
+        mimetype: receiptFile.mimetype
       };
     }
 
     res.json({
       success: true,
-      message: 'Files uploaded successfully',
+      message: 'Files uploaded successfully to Cloudinary',
       data: uploadedFiles
     });
   } catch (error) {
@@ -161,59 +134,45 @@ router.post('/both', upload.fields([
   }
 });
 
-// Get file by path
-router.get('/file/:type/:filename', (req, res) => {
+// Get file download URL from Cloudinary
+router.get('/download/:publicId', async (req, res) => {
   try {
-    const { type, filename } = req.params;
-    
-    if (!['signatures', 'receipts'].includes(type)) {
-      return res.status(400).json({ 
-        error: 'Invalid file type' 
-      });
-    }
+    const { publicId } = req.params;
+    const { filename } = req.query;
 
-    const filePath = path.join(__dirname, '../../uploads', type, filename);
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ 
-        error: 'File not found' 
-      });
-    }
+    const cloudinary = require('../config/cloudinary');
+    const downloadUrl = cloudinary.url(publicId, {
+      secure: true,
+      flags: filename ? `attachment:${filename}` : 'attachment'
+    });
 
-    res.sendFile(filePath);
+    res.json({
+      success: true,
+      data: {
+        downloadUrl: downloadUrl,
+        publicId: publicId
+      }
+    });
   } catch (error) {
-    console.error('Error serving file:', error);
+    console.error('Error generating download URL:', error);
     res.status(500).json({ 
-      error: 'Failed to serve file',
+      error: 'Failed to generate download URL',
       message: error.message 
     });
   }
 });
 
-// Delete file
-router.delete('/file/:type/:filename', (req, res) => {
+// Delete file from Cloudinary
+router.delete('/file/:publicId', async (req, res) => {
   try {
-    const { type, filename } = req.params;
+    const { publicId } = req.params;
     
-    if (!['signatures', 'receipts'].includes(type)) {
-      return res.status(400).json({ 
-        error: 'Invalid file type' 
-      });
-    }
-
-    const filePath = path.join(__dirname, '../../uploads', type, filename);
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ 
-        error: 'File not found' 
-      });
-    }
-
-    fs.unlinkSync(filePath);
+    const result = await FileUpload.deleteFile(publicId);
     
     res.json({
       success: true,
-      message: 'File deleted successfully'
+      message: 'File deleted successfully from Cloudinary',
+      data: result
     });
   } catch (error) {
     console.error('Error deleting file:', error);
@@ -224,28 +183,25 @@ router.delete('/file/:type/:filename', (req, res) => {
   }
 });
 
-// Error handling middleware for multer
-router.use((error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ 
-        error: 'File too large. Maximum size is 5MB.' 
-      });
-    }
-    return res.status(400).json({ 
-      error: 'File upload error',
+// Get file info from Cloudinary
+router.get('/file/:publicId/info', async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    
+    const cloudinary = require('../config/cloudinary');
+    const result = await cloudinary.api.resource(publicId);
+    
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('Error getting file info:', error);
+    res.status(500).json({ 
+      error: 'Failed to get file info',
       message: error.message 
     });
   }
-  
-  if (error) {
-    return res.status(400).json({ 
-      error: 'Upload error',
-      message: error.message 
-    });
-  }
-  
-  next();
 });
 
-module.exports = router; 
+module.exports = router;

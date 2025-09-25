@@ -183,16 +183,26 @@ const sendFormSubmissionNotification = async (submissionData) => {
 };
 
 // Send submission confirmation to shareholder with filled form
+// Send submission confirmation to shareholder with filled form (with attachment from Cloudinary)
 const sendShareholderConfirmation = async (submissionData) => {
   try {
     const transporter = createTransporter();
+    const cloudinary = require('../config/cloudinary'); // Adjust path as needed
     
-    // Get the absolute path to the filled form
-    const filledFormPath = path.join(__dirname, '../uploads', submissionData.filled_form_path);
+    // Download the file from Cloudinary as buffer for attachment
+    const cloudinaryUrl = cloudinary.url(submissionData.filled_form_path, {
+      secure: true,
+      flags: 'attachment'
+    });
+
+    // Fetch the file from Cloudinary
+    const response = await fetch(cloudinaryUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download file from Cloudinary: ${response.status}`);
+    }
     
-    // Read the file as buffer for attachment
-    const filledFormBuffer = await fs.readFile(filledFormPath);
-    
+    const filledFormBuffer = await response.arrayBuffer();
+
     const mailOptions = {
       from: `"${process.env.EMAIL_FROM_NAME || 'Rights Issue System'}" <${process.env.EMAIL_USER}>`,
       to: submissionData.email,
@@ -243,7 +253,7 @@ const sendShareholderConfirmation = async (submissionData) => {
           
           <p>Please find attached a copy of your completed Rights Issue Form for your records.</p>
           
-          <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL }.</p>
+          <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL || 'support@company.com'}.</p>
           
           <p>Best regards,<br>The ${process.env.COMPANY_NAME || 'Rights Issue'} Team</p>
           
@@ -256,7 +266,7 @@ const sendShareholderConfirmation = async (submissionData) => {
       attachments: [
         {
           filename: `Rights_Issue_Form_${submissionData.reg_account_number || 'submission'}.pdf`,
-          content: filledFormBuffer,
+          content: Buffer.from(filledFormBuffer),
           contentType: 'application/pdf'
         }
       ]
