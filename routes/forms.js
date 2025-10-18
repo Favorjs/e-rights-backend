@@ -19,18 +19,29 @@ async function generateRightsPdfBuffer(formData) {
   // First, ensure we have a valid PDF document
   try {
     // In production, get template from Cloudinary; in development, use local fallback
-    if (process.env.NODE_ENV === 'production') {
-      // Download template from Cloudinary
-      const cloudinary = require('../config/cloudinary');
+    // if (process.env.NODE_ENV === 'production') {
+    //   // Download template from Cloudinary
+    //   const cloudinary = require('../config/cloudinary');
+    //   const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE', { format: 'pdf' });
+    //   const response = await fetch(templateUrl);
+    //   if (!response.ok) {
+    //     throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
+    //   }
+    //   pdfBytes = await response.arrayBuffer();
+
+
+    if (false && process.env.NODE_ENV === 'production') {
+  const cloudinary = require('../config/cloudinary');
       const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE', { format: 'pdf' });
       const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
       }
       pdfBytes = await response.arrayBuffer();
-    } else {
+} else {
+ 
       // Development fallback - local file
-      const templatePath = path.join(__dirname, '../uploads/forms/TIP RIGHTS ISSUE.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/TIP_RIGHTS_ISSUE.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
