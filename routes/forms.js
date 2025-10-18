@@ -22,7 +22,7 @@ async function generateRightsPdfBuffer(formData) {
     if (process.env.NODE_ENV === 'production') {
       // Download template from Cloudinary
       const cloudinary = require('../config/cloudinary');
-      const templateUrl = cloudinary.url('rights-submissions/rights-forms/TIP_RIGHTS_ISSUE', { format: 'pdf' });
+      const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE', { format: 'pdf' });
       const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
