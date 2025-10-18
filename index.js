@@ -58,7 +58,7 @@ app.get('/api/health', (req, res) => {
 // CORS configuration for production
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL, 'https://tip.apel.com.ng'] // Add your actual frontend domain
+    ? [process.env.FRONTEND_URL, 'https://tip.apel.com.ng'] 
     : 'http://localhost:5001',
   credentials: true,
   optionsSuccessStatus: 200
@@ -91,7 +91,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT;
 
 // Initialize database and start server
 const startServer = async () => {
