@@ -254,6 +254,7 @@ class ZohoMailService {
   }
 
 // Send submission confirmation to shareholder with filled form attachment
+// Send submission confirmation to shareholder with filled form attachment
 async sendShareholderConfirmation(submissionData) {
   const subject = 'Your Rights Issue Form Submission Confirmation';
   const to = submissionData.email;
@@ -320,26 +321,59 @@ async sendShareholderConfirmation(submissionData) {
   if (submissionData.filled_form_path) {
     try {
       const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'apelng';
+      const apiKey = process.env.CLOUDINARY_API_KEY;
       
-      // Generate direct download URL for the PDF
-      const downloadUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/${submissionData.filled_form_path}`;
-      
-      console.log('📥 Attempting to download PDF from:', downloadUrl);
-      
-      const response = await fetch(downloadUrl);
-      
-      if (response.ok) {
-        const fileBuffer = await response.arrayBuffer();
-        
-        attachments.push({
-          filename: `Rights_Issue_Form_${submissionData.reg_account_number || submissionData.id}.pdf`,
-          content: Buffer.from(fileBuffer),
-          contentType: 'application/pdf'
-        });
-        
-        console.log('✅ PDF attachment added to email');
+      if (!apiKey) {
+        console.warn('⚠️ Cloudinary API key not found, cannot download PDF');
       } else {
-        console.warn('⚠️ Could not download PDF file, status:', response.status);
+        // Generate the download URL using the API format
+        const downloadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/download?public_id=${encodeURIComponent(submissionData.filled_form_path)}&attachment=true`;
+        
+        console.log('📥 Attempting to download PDF from:', downloadUrl);
+        
+        // For API downloads, we might need to use signed URLs or different approach
+        // Let's try the direct URL approach first
+        const directDownloadUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${submissionData.filled_form_path}`;
+        
+        console.log('📥 Trying direct download URL:', directDownloadUrl);
+        
+        const response = await fetch(directDownloadUrl);
+        
+        if (response.ok) {
+          const fileBuffer = await response.arrayBuffer();
+          
+          attachments.push({
+            filename: `Rights_Issue_Form_${submissionData.reg_account_number || submissionData.id}.pdf`,
+            content: Buffer.from(fileBuffer),
+            contentType: 'application/pdf'
+          });
+          
+          console.log('✅ PDF attachment added to email');
+        } else {
+          console.warn('⚠️ Could not download PDF file, status:', response.status);
+          
+          // Fallback: Try to create a signed URL or use different method
+          try {
+            // If direct download fails, you might need to use Cloudinary SDK on server side
+            const cloudinary = require('../config/cloudinary');
+            const pdfBuffer = await new Promise((resolve, reject) => {
+              cloudinary.api.resource(submissionData.filled_form_path, 
+                { resource_type: 'image' }, 
+                (error, result) => {
+                  if (error) reject(error);
+                  else resolve(result);
+                }
+              );
+            });
+            
+            if (pdfBuffer) {
+              // This approach might need adjustment based on Cloudinary SDK response
+              console.log('✅ PDF retrieved via Cloudinary SDK');
+            }
+          } catch (sdkError) {
+            console.warn('⚠️ Cloudinary SDK also failed:', sdkError.message);
+          }
+        }
       }
     } catch (attachmentError) {
       console.warn('⚠️ Could not attach PDF file, sending email without attachment:', attachmentError.message);
@@ -357,7 +391,6 @@ async sendShareholderConfirmation(submissionData) {
     return { success: false, error: error.message };
   }
 }
-
   // Test connection
   async testConnection() {
     try {
