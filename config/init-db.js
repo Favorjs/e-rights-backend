@@ -28,24 +28,24 @@ const initDatabase = async () => {
     `);
 
     // Insert sample stockbrokers
-    const sampleStockbrokers = [
-      { name: 'APC Securities Limited', code: 'APC' },
-      { name: 'Cordros Capital Limited', code: 'CORD' },
-      { name: 'FBNQuest Merchant Bank Limited', code: 'FBNQ' },
-      { name: 'FCMB Capital Markets Limited', code: 'FCMB' },
-      { name: 'FSL Securities Limited', code: 'FSL' },
-      { name: 'Meristem Capital Limited', code: 'MERISTEM' },
-      { name: 'Stanbic IBTC Stockbrokers Limited', code: 'STANBIC' },
-      { name: 'United Capital Securities Limited', code: 'UCSL' }
-    ];
+    // const sampleStockbrokers = [
+    //   { name: 'APC Securities Limited', code: 'APC' },
+    //   { name: 'Cordros Capital Limited', code: 'CORD' },
+    //   { name: 'FBNQuest Merchant Bank Limited', code: 'FBNQ' },
+    //   { name: 'FCMB Capital Markets Limited', code: 'FCMB' },
+    //   { name: 'FSL Securities Limited', code: 'FSL' },
+    //   { name: 'Meristem Capital Limited', code: 'MERISTEM' },
+    //   { name: 'Stanbic IBTC Stockbrokers Limited', code: 'STANBIC' },
+    //   { name: 'United Capital Securities Limited', code: 'UCSL' }
+    // ];
 
-    for (const broker of sampleStockbrokers) {
-      await pool.query(`
-        INSERT INTO stockbrokers (name, code)
-        VALUES ($1, $2)
-        ON CONFLICT (code) DO NOTHING
-      `, [broker.name, broker.code]);
-    }
+    // for (const broker of sampleStockbrokers) {
+    //   await pool.query(`
+    //     INSERT INTO stockbrokers (name, code)
+    //     VALUES ($1, $2)
+    //     ON CONFLICT (code) DO NOTHING
+    //   `, [broker.name, broker.code]);
+    // }
 
     // Create forms table (unchanged)
     await pool.query(`

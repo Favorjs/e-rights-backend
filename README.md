@@ -46,4 +46,7 @@ npm start
 
 ## API Documentation
 
-API documentation is available at `http://localhost:5000/api-docs` when running in development mode.
+API documentation is available at `http://localhost:2500/api-docs` when running in development mode.
+
+
+\copy stockbrokers(name,code,created_at) FROM 'C:\Users\fadebowale\Desktop\APEL-WEBSITE\stockbrokers_list.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');

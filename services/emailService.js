@@ -253,102 +253,110 @@ class ZohoMailService {
     }
   }
 
-  // Send submission confirmation to shareholder with filled form attachment
-  async sendShareholderConfirmation(submissionData) {
-    const subject = 'Your Rights Issue Form Submission Confirmation';
-    const to = submissionData.email;
-    
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #2563eb;">Rights Issue Form Submission Confirmation</h2>
-        
-        <p>Dear ${submissionData.name},</p>
-        
-        <p>Thank you for submitting your Rights Issue Form. Your submission has been received and is being processed.</p>
-        
-        <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3 style="color: #1e40af; margin-top: 0;">Submission Summary</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151; width: 40%;">Registration Number:</td>
-              <td style="padding: 8px 0;">${submissionData.reg_account_number}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Current Holdings:</td>
-              <td style="padding: 8px 0;">${submissionData.holdings ? submissionData.holdings.toLocaleString() : '0'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Rights Allotted:</td>
-              <td style="padding: 8px 0;">${submissionData.rights_issue ? submissionData.rights_issue.toLocaleString() : '0'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Acceptance Type:</td>
-              <td style="padding: 8px 0; text-transform: capitalize;">
-                ${submissionData.action_type ? submissionData.action_type.replace('_', ' ') : 'N/A'}
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Shares Accepted:</td>
-              <td style="padding: 8px 0;">${submissionData.shares_accepted ? submissionData.shares_accepted.toLocaleString() : '0'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Total Amount Payable:</td>
-              <td style="padding: 8px 0; font-weight: bold;">₦${submissionData.amount_payable ? submissionData.amount_payable.toLocaleString() : '0.00'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Submission Date:</td>
-              <td style="padding: 8px 0;">${new Date(submissionData.created_at).toLocaleString()}</td>
-            </tr>
-          </table>
-        </div>
-        
-        <p>Please find attached a copy of your completed Rights Issue Form for your records.</p>
-        
-        <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL || 'support@company.com'}.</p>
-        
-        <p>Best regards,<br>The ${process.env.COMPANY_NAME || 'Rights Issue'} Team</p>
-        
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-        <p style="color: #6b7280; font-size: 12px; text-align: center;">
-          This is an automated message. Please do not reply to this email.
-        </p>
+// Send submission confirmation to shareholder with filled form attachment
+async sendShareholderConfirmation(submissionData) {
+  const subject = 'Your Rights Issue Form Submission Confirmation';
+  const to = submissionData.email;
+  
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #2563eb;">Rights Issue Form Submission Confirmation</h2>
+      
+      <p>Dear ${submissionData.name},</p>
+      
+      <p>Thank you for submitting your Rights Issue Form. Your submission has been received and is being processed.</p>
+      
+      <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #1e40af; margin-top: 0;">Submission Summary</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151; width: 40%;">Registration Number:</td>
+            <td style="padding: 8px 0;">${submissionData.reg_account_number}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Current Holdings:</td>
+            <td style="padding: 8px 0;">${submissionData.holdings ? submissionData.holdings.toLocaleString() : '0'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Rights Allotted:</td>
+            <td style="padding: 8px 0;">${submissionData.rights_issue ? submissionData.rights_issue.toLocaleString() : '0'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Acceptance Type:</td>
+            <td style="padding: 8px 0; text-transform: capitalize;">
+              ${submissionData.action_type ? submissionData.action_type.replace('_', ' ') : 'N/A'}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Shares Accepted:</td>
+            <td style="padding: 8px 0;">${submissionData.shares_accepted ? submissionData.shares_accepted.toLocaleString() : '0'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Total Amount Payable:</td>
+            <td style="padding: 8px 0; font-weight: bold;">₦${submissionData.amount_payable ? submissionData.amount_payable.toLocaleString() : '0.00'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Submission Date:</td>
+            <td style="padding: 8px 0;">${new Date(submissionData.created_at).toLocaleString()}</td>
+          </tr>
+        </table>
       </div>
-    `;
+      
+      <p>Please find attached a copy of your completed Rights Issue Form for your records.</p>
+      
+      <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL || 'support@company.com'}.</p>
+      
+      <p>Best regards,<br>The ${process.env.COMPANY_NAME || 'Rights Issue'} Team</p>
+      
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+      <p style="color: #6b7280; font-size: 12px; text-align: center;">
+        This is an automated message. Please do not reply to this email.
+      </p>
+    </div>
+  `;
 
-    // Handle attachment if filled_form_path exists
-    let attachments = [];
-    if (submissionData.filled_form_path) {
-      try {
-        // For Cloudinary URLs or local files
-        const cloudinary = require('../config/cloudinary');
-        const cloudinaryUrl = cloudinary.url(submissionData.filled_form_path, {
-          secure: true,
-          flags: 'attachment'
-        });
-
-        const response = await fetch(cloudinaryUrl);
-        if (response.ok) {
-          const fileBuffer = await response.arrayBuffer();
-          attachments.push({
-            filename: `Rights_Issue_Form_${submissionData.reg_account_number || 'submission'}.pdf`,
-            content: Buffer.from(fileBuffer),
-            contentType: 'application/pdf'
-          });
-        }
-      } catch (attachmentError) {
-        console.warn('⚠️ Could not attach file, sending email without attachment:', attachmentError.message);
-      }
-    }
-
+  // Handle attachment if filled_form_path exists
+  let attachments = [];
+  if (submissionData.filled_form_path) {
     try {
-      const result = await this.sendEmail(to, subject, html, attachments);
-      console.log('✅ Shareholder confirmation email sent');
-      return result;
-    } catch (error) {
-      console.error('❌ Failed to send shareholder confirmation:', error);
-      return { success: false, error: error.message };
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'apelng';
+      
+      // Generate direct download URL for the PDF
+      const downloadUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/${submissionData.filled_form_path}`;
+      
+      console.log('📥 Attempting to download PDF from:', downloadUrl);
+      
+      const response = await fetch(downloadUrl);
+      
+      if (response.ok) {
+        const fileBuffer = await response.arrayBuffer();
+        
+        attachments.push({
+          filename: `Rights_Issue_Form_${submissionData.reg_account_number || submissionData.id}.pdf`,
+          content: Buffer.from(fileBuffer),
+          contentType: 'application/pdf'
+        });
+        
+        console.log('✅ PDF attachment added to email');
+      } else {
+        console.warn('⚠️ Could not download PDF file, status:', response.status);
+      }
+    } catch (attachmentError) {
+      console.warn('⚠️ Could not attach PDF file, sending email without attachment:', attachmentError.message);
     }
+  } else {
+    console.warn('⚠️ No filled_form_path found in submission data');
   }
+
+  try {
+    const result = await this.sendEmail(to, subject, html, attachments);
+    console.log('✅ Shareholder confirmation email sent');
+    return result;
+  } catch (error) {
+    console.error('❌ Failed to send shareholder confirmation:', error);
+    return { success: false, error: error.message };
+  }
+}
 
   // Test connection
   async testConnection() {
