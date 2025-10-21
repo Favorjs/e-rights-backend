@@ -1,8 +1,66 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const bcrypt = require('bcrypt');
 
 // Get dashboard statistics
+router.post('/admin-signup',async (req,res)=>{
+  try{
+const {email,password} = req.body
+const hashedPassword = await bcrypt.hash(password,10);
+const createAdminUser = await pool.query('INSERT INTO admin_users (email,password) VALUES ($1,$2)', [email,hashedPassword]);
+
+return res.status(200).json({
+  success: true,
+  message: 'Admin signup successful'
+});
+
+  }catch(error){
+    console.error('Error logging in:', error);
+    res.status(500).json({ 
+      error: 'Failed to signup',
+      message: error.message 
+    });
+  }
+})
+
+router.post('/admin-login', async (req, res) => {
+  try {
+const {email,password} =req.body;
+
+const adminUser = await pool.query('SELECT * FROM admin_users WHERE email = $1', [email]);
+
+if(adminUser.rows.length === 0){
+  return res.status(401).json({
+    success: false,
+    message: 'Invalid email or password'
+  });
+}
+
+const validPassword = await bcrypt.compare(password, adminUser.rows[0].password);
+
+if(!validPassword){
+  return res.status(401).json({
+    success: false,
+    message: 'Invalid email or password'
+  });
+}
+
+
+return res.status(200).json({
+  success: true,
+  message: 'Admin login successful'
+});
+  } catch (error) {
+    console.error('Error logging in:', error);
+    res.status(500).json({ 
+      error: 'Failed to log in',
+      message: error.message 
+    });
+  }
+});
+
+
 router.get('/dashboard', async (req, res) => {
   try {
     // Get total shareholders count
