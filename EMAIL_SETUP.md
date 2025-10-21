@@ -39,6 +39,7 @@ You can modify the email service in `server/services/emailService.js` to use oth
 - Yahoo
 - Custom SMTP server
 
+
 ## Testing Email Notifications
 
 1. Start the server with email configuration

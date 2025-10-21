@@ -50,3 +50,8 @@ API documentation is available at `http://localhost:2500/api-docs` when running 
 
 
 \copy stockbrokers(name,code,created_at) FROM 'C:\Users\fadebowale\Desktop\APEL-WEBSITE\stockbrokers_list.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');
+
+reg_account_number	name	holdings	rights_issue	holdings after	amount_due	created_at	updated_at
+
+
+\copy shareholders(reg_account_number,name,holdings,rights_issue,holdings_after,amount_due,created_at,updated_at) FROM 'C:\Users\fadebowale\Desktop\APEL-WEBSITE\tip rights-issue.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');
