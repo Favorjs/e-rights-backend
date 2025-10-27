@@ -150,14 +150,14 @@ const initDatabase = async () => {
     `);
 
     // Create admin users table (unchanged)
-    await pool.query(`
-      CREATE TABLE admin_users (
-        id SERIAL PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    // await pool.query(`
+    //   CREATE TABLE admin_users (
+    //     id SERIAL PRIMARY KEY,
+    //     email VARCHAR(255) UNIQUE NOT NULL,
+    //     password VARCHAR(255) NOT NULL,
+    //     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    //   )
+    // `);
 
     // // Insert sample admin user 
     // await pool.query(`
