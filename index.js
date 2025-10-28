@@ -5,6 +5,9 @@ const compression = require('compression');
 const path = require('path');
 const fileUpload = require('express-fileupload');
 require('dotenv').config();
+const FormData = require("form-data"); // form-data v4.0.1
+const Mailgun = require("mailgun.js"); // mailgun.js v11.1.0
+
 
 const app = express();
 
@@ -104,6 +107,31 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+
+
+// async function sendSimpleMessage() {
+//   const mailgun = new Mailgun(FormData);
+//   const mg = mailgun.client({
+//     username: "api",
+//     key: process.env.MAILGUN_API_KEY,
+//     // When you have an EU-domain, you must specify the endpoint:
+//     // url: "https://api.eu.mailgun.net"
+//   });
+//   try {
+//     const data = await mg.messages.create("registrars.apel.com.ng", {
+//       from: "The Initiates E-rights <alerts@registrars.apel.com.ng>",
+//       to: ["<itservices@apelasset.com>"],
+//       subject: "Hello IT",
+//       text: "Congratulations IT, you just sent an email with Mailgun! You are truly awesome!",
+//     });
+
+//     console.log(data); // logs response data
+//   } catch (error) {
+//     console.log(error); //logs any error
+//   }
+// }
+
+// sendSimpleMessage();
 // Initialize database and start server
 const startServer = async () => {
   try {

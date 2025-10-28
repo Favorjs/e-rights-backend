@@ -1,94 +1,71 @@
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs').promises;
+const formData = require('form-data');
+const Mailgun = require('mailgun.js');
 
-// Main Zoho Mail Service Class
-class ZohoMailService {
+// Main Mailgun Email Service Class
+class MailgunEmailService {
   constructor() {
-    this.clientId = process.env.ZOHO_CLIENT_ID;
-    this.clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    this.refreshToken = process.env.ZOHO_REFRESH_TOKEN;
-    this.fromEmail = process.env.ZOHO_FROM_EMAIL;
+    this.apiKey = process.env.MAILGUN_API_KEY;
+    this.domain = process.env.MAILGUN_DOMAIN;
+    this.fromEmail = process.env.MAILGUN_FROM_EMAIL;
     this.fromName = 'The Initiates E-rights';
-    this.accessToken = null;
+    this.mailgun = new Mailgun(formData);
+    this.client = null;
+    
+    this.initializeClient();
   }
 
-  // Get access token using refresh token
-  async getAccessToken() {
+  // Initialize Mailgun client
+  initializeClient() {
     try {
-      const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          refresh_token: this.refreshToken
-        })
+      this.client = this.mailgun.client({
+        username: 'api',
+        key: this.apiKey,
       });
-
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(`Zoho API Error: ${data.error} - ${data.error_description}`);
-      }
-
-      this.accessToken = data.access_token;
-      console.log('✅ Zoho access token obtained');
-      return this.accessToken;
+      console.log('✅ Mailgun client initialized');
     } catch (error) {
-      console.error('❌ Zoho token refresh failed:', error.message);
+      console.error('❌ Failed to initialize Mailgun client:', error.message);
       throw error;
     }
   }
 
-  // Send email via Zoho API
+  // Send email via Mailgun API
   async sendEmail(to, subject, html, attachments = []) {
     try {
-      if (!this.accessToken) {
-        await this.getAccessToken();
+      if (!this.client) {
+        this.initializeClient();
       }
 
       const emailData = {
-        fromAddress: this.fromEmail,
-        toAddress: to,
+        from: `${this.fromName} <${this.fromEmail}>`,
+        to: to,
         subject: subject,
-        content: html,
-        mailFormat: 'html'
+        html: html,
       };
 
       // Add attachments if any
       if (attachments.length > 0) {
-        emailData.attachments = attachments;
+        emailData.attachment = attachments;
       }
 
-      const response = await fetch('https://mail.zoho.com/api/accounts/79419000000008002/messages', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${this.accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(emailData)
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        // If token expired, refresh and retry once
-        if (response.status === 401) {
-          console.log('🔄 Token expired, refreshing...');
-          await this.getAccessToken();
-          return await this.sendEmail(to, subject, html, attachments);
-        }
-        throw new Error(`Zoho API Error: ${result.message || response.statusText}`);
-      }
-
-      console.log(`✅ Email sent via Zoho API to ${to}`);
-      return { success: true, messageId: result.data?.messageId };
+      const response = await this.client.messages.create(this.domain, emailData);
+      
+      console.log(`✅ Email sent via Mailgun API to ${to}`);
+      return { 
+        success: true, 
+        messageId: response.id,
+        response: response 
+      };
     } catch (error) {
-      console.error('❌ Zoho API email failed:', error.message);
+      console.error('❌ Mailgun API email failed:', error.message);
+      
+      // Log detailed error information for debugging
+      if (error.details) {
+        console.error('Mailgun error details:', error.details);
+      }
+      
       throw error;
     }
   }
@@ -253,152 +230,124 @@ class ZohoMailService {
     }
   }
 
-// Send submission confirmation to shareholder with filled form attachment
-// Send submission confirmation to shareholder with filled form attachment
-async sendShareholderConfirmation(submissionData) {
-  const subject = 'Your Rights Issue Form Submission Confirmation';
-  const to = submissionData.email;
-  
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #2563eb;">Rights Issue Form Submission Confirmation</h2>
-      
-      <p>Dear ${submissionData.name},</p>
-      
-      <p>Thank you for submitting your Rights Issue Form. Your submission has been received and is being processed.</p>
-      
-      <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-        <h3 style="color: #1e40af; margin-top: 0;">Submission Summary</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151; width: 40%;">Registration Number:</td>
-            <td style="padding: 8px 0;">${submissionData.reg_account_number}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Current Holdings:</td>
-            <td style="padding: 8px 0;">${submissionData.holdings ? submissionData.holdings.toLocaleString() : '0'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Rights Allotted:</td>
-            <td style="padding: 8px 0;">${submissionData.rights_issue ? submissionData.rights_issue.toLocaleString() : '0'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Acceptance Type:</td>
-            <td style="padding: 8px 0; text-transform: capitalize;">
-              ${submissionData.action_type ? submissionData.action_type.replace('_', ' ') : 'N/A'}
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Shares Accepted:</td>
-            <td style="padding: 8px 0;">${submissionData.shares_accepted ? submissionData.shares_accepted.toLocaleString() : '0'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Total Amount Payable:</td>
-            <td style="padding: 8px 0; font-weight: bold;">₦${submissionData.amount_payable ? submissionData.amount_payable.toLocaleString() : '0.00'}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #374151;">Submission Date:</td>
-            <td style="padding: 8px 0;">${new Date(submissionData.created_at).toLocaleString()}</td>
-          </tr>
-        </table>
+  // Send submission confirmation to shareholder with filled form attachment
+  async sendShareholderConfirmation(submissionData) {
+    const subject = 'Your Rights Issue Form Submission Confirmation';
+    const to = submissionData.email;
+    
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2563eb;">Rights Issue Form Submission Confirmation</h2>
+        
+        <p>Dear ${submissionData.name},</p>
+        
+        <p>Thank you for submitting your Rights Issue Form. Your submission has been received and is being processed.</p>
+        
+        <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="color: #1e40af; margin-top: 0;">Submission Summary</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151; width: 40%;">Registration Number:</td>
+              <td style="padding: 8px 0;">${submissionData.reg_account_number}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Current Holdings:</td>
+              <td style="padding: 8px 0;">${submissionData.holdings ? submissionData.holdings.toLocaleString() : '0'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Rights Allotted:</td>
+              <td style="padding: 8px 0;">${submissionData.rights_issue ? submissionData.rights_issue.toLocaleString() : '0'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Acceptance Type:</td>
+              <td style="padding: 8px 0; text-transform: capitalize;">
+                ${submissionData.action_type ? submissionData.action_type.replace('_', ' ') : 'N/A'}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Shares Accepted:</td>
+              <td style="padding: 8px 0;">${submissionData.shares_accepted ? submissionData.shares_accepted.toLocaleString() : '0'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Total Amount Payable:</td>
+              <td style="padding: 8px 0; font-weight: bold;">₦${submissionData.amount_payable ? submissionData.amount_payable.toLocaleString() : '0.00'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold; color: #374151;">Submission Date:</td>
+              <td style="padding: 8px 0;">${new Date(submissionData.created_at).toLocaleString()}</td>
+            </tr>
+          </table>
+        </div>
+        
+        <p>Please find attached a copy of your completed Rights Issue Form for your records.</p>
+        
+        <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL || 'support@company.com'}.</p>
+        
+        <p>Best regards,<br>The ${process.env.COMPANY_NAME || 'Rights Issue'} Team</p>
+        
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+        <p style="color: #6b7280; font-size: 12px; text-align: center;">
+          This is an automated message. Please do not reply to this email.
+        </p>
       </div>
-      
-      <p>Please find attached a copy of your completed Rights Issue Form for your records.</p>
-      
-      <p>If you have any questions about your submission, please contact our support team at ${process.env.SUPPORT_EMAIL || 'support@company.com'}.</p>
-      
-      <p>Best regards,<br>The ${process.env.COMPANY_NAME || 'Rights Issue'} Team</p>
-      
-      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-      <p style="color: #6b7280; font-size: 12px; text-align: center;">
-        This is an automated message. Please do not reply to this email.
-      </p>
-    </div>
-  `;
+    `;
 
-  // Handle attachment if filled_form_path exists
-  let attachments = [];
-  if (submissionData.filled_form_path) {
-    try {
-      const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'apelng';
-      const apiKey = process.env.CLOUDINARY_API_KEY;
-      
-      if (!apiKey) {
-        console.warn('⚠️ Cloudinary API key not found, cannot download PDF');
-      } else {
-        // Generate the download URL using the API format
-        const downloadUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/download?public_id=${encodeURIComponent(submissionData.filled_form_path)}&attachment=true`;
+    // Handle attachment if filled_form_path exists
+    let attachments = [];
+    if (submissionData.filled_form_path) {
+      try {
+        const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'apelng';
         
-        console.log('📥 Attempting to download PDF from:', downloadUrl);
-        
-        // For API downloads, we might need to use signed URLs or different approach
-        // Let's try the direct URL approach first
+        // Generate the direct download URL
         const directDownloadUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${submissionData.filled_form_path}`;
         
-        console.log('📥 Trying direct download URL:', directDownloadUrl);
+        console.log('📥 Attempting to download PDF from:', directDownloadUrl);
         
         const response = await fetch(directDownloadUrl);
         
         if (response.ok) {
           const fileBuffer = await response.arrayBuffer();
           
+          // For Mailgun, attachments need to be in a specific format
           attachments.push({
             filename: `Rights_Issue_Form_${submissionData.reg_account_number || submissionData.id}.pdf`,
-            content: Buffer.from(fileBuffer),
-            contentType: 'application/pdf'
+            data: Buffer.from(fileBuffer),
           });
           
           console.log('✅ PDF attachment added to email');
         } else {
           console.warn('⚠️ Could not download PDF file, status:', response.status);
-          
-          // Fallback: Try to create a signed URL or use different method
-          try {
-            // If direct download fails, you might need to use Cloudinary SDK on server side
-            const cloudinary = require('../config/cloudinary');
-            const pdfBuffer = await new Promise((resolve, reject) => {
-              cloudinary.api.resource(submissionData.filled_form_path, 
-                { resource_type: 'image' }, 
-                (error, result) => {
-                  if (error) reject(error);
-                  else resolve(result);
-                }
-              );
-            });
-            
-            if (pdfBuffer) {
-              // This approach might need adjustment based on Cloudinary SDK response
-              console.log('✅ PDF retrieved via Cloudinary SDK');
-            }
-          } catch (sdkError) {
-            console.warn('⚠️ Cloudinary SDK also failed:', sdkError.message);
-          }
         }
+      } catch (attachmentError) {
+        console.warn('⚠️ Could not attach PDF file, sending email without attachment:', attachmentError.message);
       }
-    } catch (attachmentError) {
-      console.warn('⚠️ Could not attach PDF file, sending email without attachment:', attachmentError.message);
+    } else {
+      console.warn('⚠️ No filled_form_path found in submission data');
     }
-  } else {
-    console.warn('⚠️ No filled_form_path found in submission data');
+
+    try {
+      const result = await this.sendEmail(to, subject, html, attachments);
+      console.log('✅ Shareholder confirmation email sent');
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to send shareholder confirmation:', error);
+      return { success: false, error: error.message };
+    }
   }
 
-  try {
-    const result = await this.sendEmail(to, subject, html, attachments);
-    console.log('✅ Shareholder confirmation email sent');
-    return result;
-  } catch (error) {
-    console.error('❌ Failed to send shareholder confirmation:', error);
-    return { success: false, error: error.message };
-  }
-}
   // Test connection
   async testConnection() {
     try {
-      await this.getAccessToken();
-      console.log('✅ Zoho Mail API connection established');
-      return { success: true, message: 'Zoho Mail API connection established' };
+      // Test by sending a simple verification request
+      const domains = await this.client.domains.list();
+      console.log('✅ Mailgun API connection established');
+      return { 
+        success: true, 
+        message: 'Mailgun API connection established',
+        domain: this.domain 
+      };
     } catch (error) {
-      console.error('❌ Zoho Mail API connection failed');
+      console.error('❌ Mailgun API connection failed:', error.message);
       return { success: false, error: error.message };
     }
   }
@@ -409,24 +358,24 @@ async sendShareholderConfirmation(submissionData) {
   }
 }
 
-// Initialize Zoho Mail Service
-const zohoMailService = new ZohoMailService();
+// Initialize Mailgun Email Service
+const mailgunEmailService = new MailgunEmailService();
 
 // Test connection on startup (optional)
-zohoMailService.testConnection();
+mailgunEmailService.testConnection();
 
 // Export the service instance and class
 module.exports = {
-  ZohoMailService,
-  zohoMailService,
+  MailgunEmailService,
+  mailgunEmailService,
   
   // Legacy function exports for backward compatibility
   sendRightsSubmissionNotification: (submissionData) => 
-    zohoMailService.sendRightsSubmissionNotification(submissionData),
+    mailgunEmailService.sendRightsSubmissionNotification(submissionData),
   
   sendFormSubmissionNotification: (submissionData) => 
-    zohoMailService.sendFormSubmissionNotification(submissionData),
+    mailgunEmailService.sendFormSubmissionNotification(submissionData),
   
   sendShareholderConfirmation: (submissionData) => 
-    zohoMailService.sendShareholderConfirmation(submissionData)
+    mailgunEmailService.sendShareholderConfirmation(submissionData)
 };
