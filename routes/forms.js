@@ -16,31 +16,17 @@ async function generateRightsPdfBuffer(formData) {
   let pdfDoc;
   let form;
   
-  // First, ensure we have a valid PDF document
   try {
-    // In production, get template from Cloudinary; in development, use local fallback
-    // if (process.env.NODE_ENV === 'production') {
-    //   // Download template from Cloudinary
-    //   const cloudinary = require('../config/cloudinary');
-    //   const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE', { format: 'pdf' });
-    //   const response = await fetch(templateUrl);
-    //   if (!response.ok) {
-    //     throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
-    //   }
-    //   pdfBytes = await response.arrayBuffer();
-
-
+    // Load PDF template
     if (false && process.env.NODE_ENV === 'production') {
-  const cloudinary = require('../config/cloudinary');
+      const cloudinary = require('../config/cloudinary');
       const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE', { format: 'pdf' });
       const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
       }
       pdfBytes = await response.arrayBuffer();
-} else {
- 
-      // Development fallback - local file
+    } else {
       const templatePath = path.join(__dirname, '../rights-form/TIP_RIGHTS_ISSUE.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
@@ -53,7 +39,6 @@ async function generateRightsPdfBuffer(formData) {
     pdfDoc = await PDFDocument.load(pdfBytes);
     form = pdfDoc.getForm();
     
-    // If we couldn't get the form, we can't continue
     if (!form) {
       throw new Error('Failed to get form from PDF document');
     }
@@ -72,14 +57,28 @@ async function generateRightsPdfBuffer(formData) {
       return false;
     };
 
-    // Basic shareholder info
+    // Helper function to clear form fields
+    const clearFieldIfExists = (fieldName) => {
+      try {
+        const field = form.getField(fieldName);
+        if (field && typeof field.setText === 'function') {
+          field.setText('');
+          return true;
+        }
+      } catch (_) {
+        // Ignore errors for missing fields
+      }
+      return false;
+    };
+
+    // Basic shareholder info (always populate)
     setFieldIfExists('reg_account_number', formData.reg_account_number) ||
       setFieldIfExists('Registration account number', formData.reg_account_number);
     
     setFieldIfExists('shareholder_name', formData.name) ||
       setFieldIfExists('Name', formData.name);
 
-    // Rights and shares info
+    // Rights and shares info (always populate)
     setFieldIfExists('holdings', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings) ||
       setFieldIfExists('Shares Held', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings);
 
@@ -89,64 +88,151 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('amount_due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`) ||
       setFieldIfExists('Amount Due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`);
 
-    // Stockbroker & CHN details
+    // Stockbroker & CHN details (always populate)
     setFieldIfExists('stockbroker', formData.stockbroker) ||
       setFieldIfExists('Stockbroker', formData.stockbroker);
 
     setFieldIfExists('chn', formData.chn) ||
       setFieldIfExists('CHN number', formData.chn);
 
-    // Action type specific fields
+    // SECTION LOGIC - CLEAR ALL FIELDS FIRST
+    // Clear all conditional fields first to avoid cross-contamination
+    const allConditionalFields = [
+      // Section A - Full Acceptance
+      'accept_full', 'Accept full allotment',
+      'apply_additional', 'Apply for additional shares',
+      'additional_shares', 'Additional shares applied',
+      'additional_amount', 'Additional amount payable',
+      'accept_smaller_allotment', 'Accept smaller allotment',
+      'payment_amount', 'Payment amount',
+      'bank_name', 'Bank name',
+      'cheque_number', 'Cheque number',
+      'branch', 'Branch',
+      
+      // Section B - Renunciation/Partial
+      'shares_accepted', 'Shares accepted',
+      'amount_payable', 'Amount payable',
+      'shares_renounced', 'Shares renounced',
+      'accept_partial', 'Accept partial',
+      'renounce_rights', 'Renounce rights',
+      'trade_rights', 'Trade rights'
+    ];
+
+    // Clear all conditional fields
+    allConditionalFields.forEach(field => clearFieldIfExists(field));
+
+    // CONDITIONAL FIELDS BASED ON ACTION TYPE
     if (formData.action_type === 'full_acceptance') {
-      setFieldIfExists('accept_full', formData.accept_full ? 'Yes' : 'No') ||
-        setFieldIfExists('Accept full allotment', formData.accept_full ? 'Yes' : 'No');
+      console.log('Processing FULL ACCEPTANCE section');
+      
+      // SECTION A: Full Acceptance fields
+      setFieldIfExists('accept_full', '✓') ||
+        setFieldIfExists('Accept full allotment', '✓');
 
-      setFieldIfExists('apply_additional', formData.apply_additional ? 'Yes' : 'No') ||
-        setFieldIfExists('Apply for additional shares', formData.apply_additional ? 'Yes' : 'No');
-
+      // Additional shares logic
       if (formData.apply_additional) {
-        setFieldIfExists('additional_shares', formData.additional_shares) ||
-          setFieldIfExists('Additional shares applied', formData.additional_shares);
+        console.log('Processing ADDITIONAL SHARES section');
+        setFieldIfExists('apply_additional', '✓') ||
+          setFieldIfExists('Apply for additional shares', '✓');
 
-        setFieldIfExists('additional_amount', formData.additional_amount) ||
-          setFieldIfExists('Additional amount payable', formData.additional_amount);
+        setFieldIfExists('additional_shares', formData.additional_shares?.toString() || '') ||
+          setFieldIfExists('Additional shares applied', formData.additional_shares?.toString() || '');
 
-        setFieldIfExists('accept_smaller_allotment', formData.accept_smaller_allotment ? 'Yes' : 'No') ||
-          setFieldIfExists('Accept smaller allotment', formData.accept_smaller_allotment ? 'Yes' : 'No');
+        setFieldIfExists('additional_amount', formData.additional_amount?.toString() || '') ||
+          setFieldIfExists('Additional amount payable', formData.additional_amount?.toString() || '');
+
+        setFieldIfExists('accept_smaller_allotment', formData.accept_smaller_allotment ? '✓' : '') ||
+          setFieldIfExists('Accept smaller allotment', formData.accept_smaller_allotment ? '✓' : '');
       }
 
-      setFieldIfExists('payment_amount', formData.payment_amount) ||
-        setFieldIfExists('Payment amount', formData.payment_amount);
+      // Payment details for Section A (only if additional shares or full acceptance with payment)
+      if (formData.apply_additional && formData.additional_shares > 0) {
+        // Use the additional payment fields for additional shares
+        setFieldIfExists('payment_amount', formData.additional_amount?.toString() || '') ||
+          setFieldIfExists('Payment amount', formData.additional_amount?.toString() || '');
 
-      setFieldIfExists('bank_name', formData.bank_name) ||
-        setFieldIfExists('Bank name', formData.bank_name);
+        setFieldIfExists('bank_name', formData.additional_payment_bank_name || '') ||
+          setFieldIfExists('Bank name', formData.additional_payment_bank_name || '');
 
-      setFieldIfExists('cheque_number', formData.cheque_number) ||
-        setFieldIfExists('Cheque number', formData.cheque_number);
+        setFieldIfExists('cheque_number', formData.additional_payment_cheque_number || '') ||
+          setFieldIfExists('Cheque number', formData.additional_payment_cheque_number || '');
 
-      setFieldIfExists('branch', formData.branch) ||
-        setFieldIfExists('Branch', formData.branch);
-    } else {
-      setFieldIfExists('shares_accepted', formData.shares_accepted) ||
-        setFieldIfExists('Shares accepted', formData.shares_accepted);
+        setFieldIfExists('branch', formData.additional_payment_branch || '') ||
+          setFieldIfExists('Branch', formData.additional_payment_branch || '');
+      } else if (formData.payment_amount) {
+        // Fallback to original payment fields if additional shares not applied
+        setFieldIfExists('payment_amount', formData.payment_amount?.toString() || '') ||
+          setFieldIfExists('Payment amount', formData.payment_amount?.toString() || '');
 
-      setFieldIfExists('amount_payable', formData.amount_payable) ||
-        setFieldIfExists('Amount payable', formData.amount_payable);
+        setFieldIfExists('bank_name', formData.bank_name || '') ||
+          setFieldIfExists('Bank name', formData.bank_name || '');
 
-      setFieldIfExists('shares_renounced', formData.shares_renounced) ||
-        setFieldIfExists('Shares renounced', formData.shares_renounced);
+        setFieldIfExists('cheque_number', formData.cheque_number || '') ||
+          setFieldIfExists('Cheque number', formData.cheque_number || '');
 
-      setFieldIfExists('accept_partial', formData.accept_partial ? 'Yes' : 'No') ||
-        setFieldIfExists('Accept partial', formData.accept_partial ? 'Yes' : 'No');
+        setFieldIfExists('branch', formData.branch || '') ||
+          setFieldIfExists('Branch', formData.branch || '');
+      }
 
-      setFieldIfExists('renounce_rights', formData.renounce_rights ? 'Yes' : 'No') ||
-        setFieldIfExists('Renounce rights', formData.renounce_rights ? 'Yes' : 'No');
+      // ENSURE SECTION B IS CLEAR for Full Acceptance
+      const sectionBFields = [
+        'shares_accepted', 'Shares accepted',
+        'amount_payable', 'Amount payable', 
+        'shares_renounced', 'Shares renounced',
+        'accept_partial', 'Accept partial',
+        'renounce_rights', 'Renounce rights',
+        'trade_rights', 'Trade rights'
+      ];
+      sectionBFields.forEach(field => clearFieldIfExists(field));
 
-      setFieldIfExists('trade_rights', formData.trade_rights ? 'Yes' : 'No') ||
-        setFieldIfExists('Trade rights', formData.trade_rights ? 'Yes' : 'No');
+    } else if (formData.action_type === 'renunciation_partial') {
+      console.log('Processing RENUNCIATION/PARTIAL section');
+      
+      // SECTION B: Renunciation/Partial Acceptance fields
+      setFieldIfExists('shares_accepted', formData.shares_accepted?.toString() || '') ||
+        setFieldIfExists('Shares accepted', formData.shares_accepted?.toString() || '');
+
+      setFieldIfExists('amount_payable', formData.amount_payable?.toString() || '') ||
+        setFieldIfExists('Amount payable', formData.amount_payable?.toString() || '');
+
+      setFieldIfExists('shares_renounced', formData.shares_renounced?.toString() || '') ||
+        setFieldIfExists('Shares renounced', formData.shares_renounced?.toString() || '');
+
+      setFieldIfExists('accept_partial', formData.accept_partial ? '✓' : '') ||
+        setFieldIfExists('Accept partial', formData.accept_partial ? '✓' : '');
+
+      setFieldIfExists('renounce_rights', formData.renounce_rights ? '✓' : '') ||
+        setFieldIfExists('Renounce rights', formData.renounce_rights ? '✓' : '');
+
+      setFieldIfExists('trade_rights', formData.trade_rights ? '✓' : '') ||
+        setFieldIfExists('Trade rights', formData.trade_rights ? '✓' : '');
+
+      // Payment details for Section B (only if partial acceptance with payment)
+      if (formData.shares_accepted > 0) {
+        // Use the partial payment fields for partial acceptance
+        setFieldIfExists('bank_name', formData.partial_payment_bank_name || '') ||
+          setFieldIfExists('Bank name', formData.partial_payment_bank_name || '');
+
+        setFieldIfExists('cheque_number', formData.partial_payment_cheque_number || '') ||
+          setFieldIfExists('Cheque number', formData.partial_payment_cheque_number || '');
+
+        setFieldIfExists('branch', formData.partial_payment_branch || '') ||
+          setFieldIfExists('Branch', formData.partial_payment_branch || '');
+      }
+
+      // ENSURE SECTION A IS CLEAR for Renunciation/Partial
+      const sectionAFields = [
+        'accept_full', 'Accept full allotment',
+        'apply_additional', 'Apply for additional shares', 
+        'additional_shares', 'Additional shares applied',
+        'additional_amount', 'Additional amount payable',
+        'accept_smaller_allotment', 'Accept smaller allotment',
+        'payment_amount', 'Payment amount'
+      ];
+      sectionAFields.forEach(field => clearFieldIfExists(field));
     }
 
-    // Personal details
+    // Personal details (always populate)
     setFieldIfExists('contact_name', formData.contact_name) ||
       setFieldIfExists('Names', formData.contact_name);
 
@@ -162,7 +248,7 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('email', formData.email) ||
       setFieldIfExists('Email address', formData.email);
 
-    // Bank details for e-dividend
+    // Bank details for e-dividend (always populate)
     setFieldIfExists('bank_name_edividend', formData.bank_name_edividend) ||
       setFieldIfExists('E-dividend bank name', formData.bank_name_edividend);
 
@@ -175,7 +261,7 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('bvn', formData.bvn) ||
       setFieldIfExists('Bank verification number', formData.bvn);
 
-    // Corporate details
+    // Corporate details (if provided)
     if (formData.corporate_signatory_names) {
       setFieldIfExists('corporate_signatory_names', formData.corporate_signatory_names) ||
         setFieldIfExists('Corporate signatories', formData.corporate_signatory_names);
@@ -188,16 +274,13 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('signature_type', formData.signature_type === 'single' ? 'Single' : 'Joint') ||
       setFieldIfExists('Signature type', formData.signature_type === 'single' ? 'Single' : 'Joint');
 
-    // Only try to flatten if we have a valid form
+    // Flatten the form if available
     if (form) {
       form.flatten();
-    } else {
-      console.warn('No form found in PDF document, skipping flattening');
     }
     
   } catch (error) {
     console.error('Error generating PDF:', error);
-    // If we have bytes but no doc, try to create a basic doc
     if (!pdfDoc && pdfBytes) {
       try {
         pdfDoc = await PDFDocument.load(pdfBytes);
@@ -206,7 +289,113 @@ async function generateRightsPdfBuffer(formData) {
         throw new Error(`Failed to generate PDF: ${error.message}`);
       }
     }
-    // If we still don't have a valid PDF doc, re-throw the original error
+    if (!pdfDoc) {
+      throw new Error(`Failed to generate PDF: ${error.message}`);
+    }
+  }
+
+  // Save and return the PDF
+  if (pdfDoc) {
+    const modifiedPdf = await pdfDoc.save();
+    return Buffer.from(modifiedPdf);
+  } else {
+    throw new Error('Failed to create PDF document');
+  }
+}
+
+async function generateRightsPdfBufferjustDownload(formData) {
+  let pdfBytes;
+  let pdfDoc;
+  let form;
+  
+  try {
+    // Load PDF template
+    if (false && process.env.NODE_ENV === 'production') {
+      const cloudinary = require('../config/cloudinary');
+      const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE', { format: 'pdf' });
+      const response = await fetch(templateUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
+      }
+      pdfBytes = await response.arrayBuffer();
+    } else {
+      const templatePath = path.join(__dirname, '../rights-form/TIP_RIGHTS_ISSUE_B.pdf');
+      try {
+        pdfBytes = await fs.readFile(templatePath);
+      } catch (error) {
+        throw new Error(`Failed to read PDF template: ${error.message}`);
+      }
+    }
+
+    // Load the PDF document and get the form
+    pdfDoc = await PDFDocument.load(pdfBytes);
+    form = pdfDoc.getForm();
+    
+    if (!form) {
+      throw new Error('Failed to get form from PDF document');
+    }
+    
+    // Helper function to set form fields if they exist
+    const setFieldIfExists = (fieldName, value) => {
+      try {
+        const field = form.getField(fieldName);
+        if (field && typeof field.setText === 'function') {
+          field.setText(String(value ?? ''));
+          return true;
+        }
+      } catch (_) {
+        // Ignore errors for missing fields
+      }
+      return false;
+    };
+
+    // Helper function to clear form fields
+    const clearFieldIfExists = (fieldName) => {
+      try {
+        const field = form.getField(fieldName);
+        if (field && typeof field.setText === 'function') {
+          field.setText('');
+          return true;
+        }
+      } catch (_) {
+        // Ignore errors for missing fields
+      }
+      return false;
+    };
+
+    // Basic shareholder info (always populate)
+    setFieldIfExists('reg_account_number', formData.reg_account_number) ||
+      setFieldIfExists('Registration account number', formData.reg_account_number);
+    
+    setFieldIfExists('shareholder_name', formData.name) ||
+      setFieldIfExists('Name', formData.name);
+
+    // Rights and shares info (always populate)
+    setFieldIfExists('holdings', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings) ||
+      setFieldIfExists('Shares Held', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings);
+
+    setFieldIfExists('rights_issue', (formData.rights_issue ?? '').toLocaleString?.() ?? formData.rights_issue) ||
+      setFieldIfExists('Rights Allotted', (formData.rights_issue ?? '').toLocaleString?.() ?? formData.rights_issue);
+
+    setFieldIfExists('amount_due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`) ||
+      setFieldIfExists('Amount Due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`);
+
+  
+    // Flatten the form if available
+    if (form) {
+      form.flatten();
+    }
+    
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    if (!pdfDoc && pdfBytes) {
+      try {
+        pdfDoc = await PDFDocument.load(pdfBytes);
+      } catch (loadError) {
+        console.error('Failed to load fallback PDF:', loadError);
+        throw new Error(`Failed to generate PDF: ${error.message}`);
+      }
+    }
     if (!pdfDoc) {
       throw new Error(`Failed to generate PDF: ${error.message}`);
     }
@@ -446,12 +635,11 @@ router.post('/preview-rights', async (req, res) => {
     // Validate required fields based on action type
     let requiredFields = [
       'stockbroker', 'chn', 'action_type', 'contact_name', 'next_of_kin',
-      'daytime_phone', 'mobile_phone', 'email', 'bank_name_edividend',
-      'bank_branch_edividend', 'account_number', 'bvn'
+      'daytime_phone', 'mobile_phone', 'email', 'account_number', 'bvn'
     ];
 
     if (formData.action_type === 'full_acceptance') {
-      requiredFields = [...requiredFields, 'accept_full', 'payment_amount', 'bank_name', 'cheque_number', 'branch'];
+      requiredFields = [...requiredFields, 'accept_full'];
     } else {
       requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
     }
@@ -496,7 +684,8 @@ router.post('/submit-rights', async (req, res) => {
     const numericFields = [
       'shareholder_id', 'stockbroker', 'additional_shares', 'additional_amount',
       'payment_amount', 'shares_accepted', 'amount_payable', 'shares_renounced',
-      'holdings', 'rights_issue', 'holdings_after', 'amount_due'
+      'holdings', 'rights_issue', 'holdings_after', 'amount_due',
+      'additional_payment_cheque_number', 'partial_payment_cheque_number'
     ];
     
     // Create a new object with cleaned numeric fields
@@ -529,15 +718,52 @@ router.post('/submit-rights', async (req, res) => {
     let requiredFields = [
       'shareholder_id', 'stockbroker', 'chn', 'action_type', 'instructions_read',
       'contact_name', 'next_of_kin', 'daytime_phone', 'mobile_phone', 'email',
-      'bank_name_edividend', 'bank_branch_edividend', 'account_number', 'bvn',
+    'account_number', 'bvn',
       'signature_type'
     ];
 
-    if (formData.action_type === 'full_acceptance') {
-      requiredFields = [...requiredFields, 'accept_full', 'payment_amount', 'bank_name', 'cheque_number', 'branch'];
-    } else {
-      requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
-    }
+//     if (formData.action_type === 'full_acceptance') {
+//       requiredFields = [...requiredFields, 'accept_full'];
+
+//         if (formData.action_type === 'apply_additional') {
+//     requiredFields = [...requiredFields, 'additional_shares', 'additional_amount', 'payment_amount', 'bank_name', 'branch'];
+//   }
+// } else {
+//   requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
+// }
+   // Updated validation for different action types
+   if (formData.action_type === 'full_acceptance') {
+     requiredFields = [...requiredFields, 'accept_full'];
+
+     // Additional validation for additional shares
+     if (formData.apply_additional === 'true' || formData.apply_additional === true) {
+       requiredFields = [...requiredFields, 'additional_shares', 'additional_amount'];
+       
+       // Payment fields only required if applying for additional shares with shares > 0
+       if (parseInt(formData.additional_shares) > 0) {
+         requiredFields = [
+           ...requiredFields, 
+           'additional_payment_bank_name', 
+           'additional_payment_cheque_number', 
+           'additional_payment_branch'
+         ];
+       }
+     }
+   } else if (formData.action_type === 'renunciation_partial') {
+     requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
+     
+     // Payment fields only required if accepting partial shares
+     if (parseInt(formData.shares_accepted) > 0) {
+       requiredFields = [
+         ...requiredFields, 
+         'partial_payment_bank_name', 
+         'partial_payment_cheque_number', 
+         'partial_payment_branch'
+       ];
+     }
+   }
+    
+
     
     const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
     
@@ -608,48 +834,57 @@ try {
 }
 
     // Insert rights submission with Cloudinary public IDs
-    const insertQuery = `
-      INSERT INTO rights_submissions (
-        shareholder_id, instructions_read, stockbroker_id, chn, action_type,
-        accept_full, apply_additional, additional_shares, additional_amount,
-        accept_smaller_allotment, payment_amount, payment_bank_name, payment_cheque_number, payment_branch,
-        shares_accepted, amount_payable, shares_renounced, accept_partial, renounce_rights, trade_rights,
-        contact_name, next_of_kin, daytime_phone, mobile_phone, email,
-        bank_name_edividend, bank_branch_edividend, account_number, bvn,
-        corporate_signatory_names, corporate_designations,
-        signature_type, reg_account_number, name, holdings, rights_issue,
-        holdings_after, amount_due, filled_form_path, receipt_path, signature_paths,
-        status, created_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-        $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-        $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, 'pending', CURRENT_TIMESTAMP
-      )
-      RETURNING *
-    `;
+  const insertQuery = `
+  INSERT INTO rights_submissions (
+    shareholder_id, instructions_read, stockbroker_id, chn, action_type,
+    accept_full, apply_additional, additional_shares, additional_amount,
+    accept_smaller_allotment, payment_amount, 
+    additional_payment_bank_name, additional_payment_cheque_number, additional_payment_branch,
+    shares_accepted, amount_payable, shares_renounced, accept_partial, renounce_rights, trade_rights,
+    contact_name, next_of_kin, daytime_phone, mobile_phone, email,
+    bank_name_edividend, bank_branch_edividend, account_number, bvn,
+    corporate_signatory_names, corporate_designations,
+    signature_type, reg_account_number, name, holdings, rights_issue,
+    holdings_after, amount_due, filled_form_path, receipt_path, signature_paths,
+    partial_payment_bank_name, partial_payment_cheque_number, partial_payment_branch,
+    status, created_at
+  ) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+    $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+    $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46
+  )
+  RETURNING *
+`;
 
     // Prepare data for insertion, trimming any strings that are too long
     const insertData = [
+      // First 5 fields
       formData.shareholder_id, 
       formData.instructions_read, 
-     trimToMaxLength(formData.stockbroker), 
-     trimToMaxLength(formData.chn), 
-     trimToMaxLength(formData.action_type),
+      trimToMaxLength(formData.stockbroker), 
+      trimToMaxLength(formData.chn), 
+      trimToMaxLength(formData.action_type),
+      
+      // Full acceptance fields (6-14)
       formData.accept_full, 
       formData.apply_additional, 
       formData.additional_shares, 
       formData.additional_amount,
       formData.accept_smaller_allotment, 
       formData.payment_amount, 
-      trimToMaxLength(formData.bank_name), 
-      trimToMaxLength(formData.cheque_number), 
-      trimToMaxLength(formData.branch),
+      trimToMaxLength(formData.additional_payment_bank_name),
+      trimToMaxLength(formData.additional_payment_cheque_number),
+      trimToMaxLength(formData.additional_payment_branch),
+      
+      // Shares and payment info (15-24)
       formData.shares_accepted, 
       formData.amount_payable, 
       formData.shares_renounced, 
       formData.accept_partial, 
       formData.renounce_rights, 
       formData.trade_rights,
+      
+      // Contact info (25-34)
       trimToMaxLength(formData.contact_name), 
       trimToMaxLength(formData.next_of_kin), 
       trimToMaxLength(formData.daytime_phone), 
@@ -659,8 +894,12 @@ try {
       trimToMaxLength(formData.bank_branch_edividend), 
       trimToMaxLength(formData.account_number), 
       trimToMaxLength(formData.bvn),
+      
+      // Corporate details (35-36)
       trimToMaxLength(formData.corporate_signatory_names), 
       trimToMaxLength(formData.corporate_designations),
+      
+      // Form metadata (37-44)
       trimToMaxLength(formData.signature_type), 
       trimToMaxLength(formData.reg_account_number), 
       trimToMaxLength(formData.name), 
@@ -668,9 +907,20 @@ try {
       formData.rights_issue,
       formData.holdings_after, 
       formData.amount_due, 
-     trimToMaxLength(filledFormPublicId, 500), 
+      
+      // File paths (45-47)
+      trimToMaxLength(filledFormPublicId, 500), 
       trimToMaxLength(receiptPublicId, 500), 
-      signaturePublicIds
+      signaturePublicIds,
+      
+      // Partial payment details (48-50)
+      trimToMaxLength(formData.partial_payment_bank_name),
+      trimToMaxLength(formData.partial_payment_cheque_number),
+      trimToMaxLength(formData.partial_payment_branch),
+      
+      // Status (51-52)
+      'pending',
+      new Date()
     ];
 
     const result = await pool.query(insertQuery, insertData);
@@ -1216,5 +1466,51 @@ router.post('/generate-rights-form', async (req, res) => {
   }
 });
 
+
+
+// Generate basic pre-filled PDF with only shareholder info
+router.post('/generate-basic-pdf', async (req, res) => {
+  try {
+    const formData = req.body;
+    
+    // Validate required basic fields
+    const requiredFields = [
+      'reg_account_number', 'name', 'holdings', 
+      'rights_issue', 'amount_due'
+    ];
+    
+    const missingFields = requiredFields.filter(field => !formData[field]);
+    
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'All basic shareholder fields are required',
+        missingFields
+      });
+    }
+
+    // Generate PDF buffer with minimal data
+    const pdfBuffer = await generateRightsPdfBufferjustDownload({
+      ...formData,
+      action_type: 'full_acceptance', // Force basic acceptance
+      accept_full: true,
+      contact_name: formData.name || '',
+      signature_type: 'single'
+    });
+  
+    // Return PDF with proper headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="TIP_RIGHTS_${formData.reg_account_number}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+      
+  } catch (error) {
+    console.error('Error generating basic PDF:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate PDF',
+      message: error.message 
+    });
+  }
+});
 
 module.exports = router; 

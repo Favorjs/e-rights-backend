@@ -98,10 +98,15 @@ const initDatabase = async () => {
         additional_amount DECIMAL(15,2),
         accept_smaller_allotment BOOLEAN DEFAULT FALSE,
         payment_amount DECIMAL(15,2),
-        payment_bank_name VARCHAR(255),
-        payment_cheque_number VARCHAR(100),
-        payment_branch VARCHAR(255),
+
+        partial_payment_bank_name VARCHAR(255),
+        partial_payment_cheque_number VARCHAR(100),
+        partial_payment_branch VARCHAR(255),
         
+        additional_payment_bank_name VARCHAR(255),
+        additional_payment_cheque_number VARCHAR(100),
+        additional_payment_branch VARCHAR(255),
+
         -- Renunciation/Partial acceptance fields
         shares_accepted DECIMAL(15,2),
         amount_payable DECIMAL(15,2),
@@ -148,6 +153,7 @@ const initDatabase = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
 
     // Create admin users table (unchanged)
     // await pool.query(`
