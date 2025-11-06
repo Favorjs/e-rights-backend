@@ -270,7 +270,7 @@ class MailgunEmailService {
             </tr>
             <tr>
               <td style="padding: 8px 0; font-weight: bold; color: #374151;">Total Amount Payable:</td>
-              <td style="padding: 8px 0; font-weight: bold;">₦${submissionData.amount_payable ? submissionData.amount_payable.toLocaleString() : '0.00'}</td>
+              <td style="padding: 8px 0; font-weight: bold;">₦${submissionData.amount_due ? submissionData.amount_due.toLocaleString() : '0.00'}</td>
             </tr>
             <tr>
               <td style="padding: 8px 0; font-weight: bold; color: #374151;">Submission Date:</td>
