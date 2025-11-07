@@ -743,26 +743,25 @@ router.post('/submit-rights', async (req, res) => {
        if (parseInt(formData.additional_shares) > 0) {
          requiredFields = [
            ...requiredFields, 
-           'additional_payment_bank_name', 
-           'additional_payment_cheque_number', 
-           'additional_payment_branch'
+        
+          
          ];
        }
      }
    } else if (formData.action_type === 'renunciation_partial') {
-     requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
-     
-     // Payment fields only required if accepting partial shares
-     if (parseInt(formData.shares_accepted) > 0) {
-       requiredFields = [
-         ...requiredFields, 
-         'partial_payment_bank_name', 
-         'partial_payment_cheque_number', 
-         'partial_payment_branch'
-       ];
-     }
-   }
-    
+  requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
+  
+  // Payment fields only required if accepting partial shares WITH payment
+  const sharesAccepted = parseInt(formData.shares_accepted) || 0;
+  if (sharesAccepted > 0) {
+    // Only require payment details if shares are being accepted (meaning payment is needed)
+    requiredFields = [
+      ...requiredFields, 
+   
+    ];
+  }
+  // If shares_accepted is 0, no payment details should be required
+}
 
     
     const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
