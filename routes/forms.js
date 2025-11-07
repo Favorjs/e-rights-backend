@@ -707,28 +707,41 @@ router.post('/submit-rights', async (req, res) => {
     formData = cleanedFormData;
 
     // Calculate amount payable based on shares accepted and price per share
-    const pricePerShare = 7;
- // In your forms.js, update the calculation section:
+  const pricePerShare = 7;
+
+// Helper function to safely parse numbers
+const safeNumber = (value) => {
+  const num = parseFloat(value);
+  return isNaN(num) ? 0 : num;
+};
+
+// Calculate based on action type
 if (formData.action_type === 'full_acceptance') {
-  const rightsAmount = (formData.rights_issue * pricePerShare);
-  const additionalAmount = formData.apply_additional ? (formData.additional_shares * pricePerShare) : 0;
+  const rightsAmount = safeNumber(formData.rights_issue) * pricePerShare;
+  
+  let additionalAmount = 0;
+  let additionalShares = 0;
+  
+  if (formData.apply_additional) {
+    additionalShares = safeNumber(formData.additional_shares);
+    additionalAmount = additionalShares * pricePerShare;
+  }
   
   formData.amount_payable = (rightsAmount + additionalAmount).toFixed(2);
-  formData.shares_accepted = formData.rights_issue + (formData.apply_additional ? parseFloat(formData.additional_shares) || 0 : 0);
+  formData.shares_accepted = safeNumber(formData.rights_issue) + additionalShares;
   formData.shares_renounced = 0;
 
-    } else if (formData.action_type === 'partial_acceptance') {
-      formData.amount_payable = (formData.shares_accepted * pricePerShare).toFixed(2);
-      formData.shares_renounced = formData.rights_issue - formData.shares_accepted;
-    } else if (formData.action_type === 'renounce') {
-      formData.amount_payable = 0;
-      formData.shares_accepted = 0;
-      formData.shares_renounced = formData.rights_issue;
-    }else if (formData.action_type === 'apply_additional') {
-      formData.amount_payable = (formData.additional_shares * pricePerShare).toFixed(2);
-      formData.shares_accepted = formData.additional_shares + formData.rights_issue;
-      formData.shares_renounced = 0;
-    }
+} else if (formData.action_type === 'renunciation_partial') {
+  const sharesAccepted = safeNumber(formData.shares_accepted);
+  formData.amount_payable = (sharesAccepted * pricePerShare).toFixed(2);
+  formData.shares_renounced = safeNumber(formData.rights_issue) - sharesAccepted;
+  
+} else {
+  // Default fallback
+  formData.amount_payable = '0.00';
+  formData.shares_accepted = 0;
+  formData.shares_renounced = safeNumber(formData.rights_issue);
+}
 
     // Validate required fields
     let requiredFields = [
