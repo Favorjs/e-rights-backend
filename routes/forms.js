@@ -108,6 +108,8 @@ async function generateRightsPdfBuffer(formData) {
       'bank_name', 'Bank name',
       'cheque_number', 'Cheque number',
       'branch', 'Branch',
+      'amount_payable', 'Amount payable',
+
       
       // Section B - Renunciation/Partial
       'shares_accepted', 'Shares accepted',
@@ -159,6 +161,11 @@ async function generateRightsPdfBuffer(formData) {
 
         setFieldIfExists('branch', formData.additional_payment_branch || '') ||
           setFieldIfExists('Branch', formData.additional_payment_branch || '');
+          
+        setFieldIfExists('amount_payable', formData.amount_payable?.toString() || '') ||
+          setFieldIfExists('Amount payable', formData.amount_payable?.toString() || '');
+
+
       } else if (formData.payment_amount) {
         // Fallback to original payment fields if additional shares not applied
         setFieldIfExists('payment_amount', formData.payment_amount?.toString() || '') ||
@@ -227,7 +234,8 @@ async function generateRightsPdfBuffer(formData) {
         'additional_shares', 'Additional shares applied',
         'additional_amount', 'Additional amount payable',
         'accept_smaller_allotment', 'Accept smaller allotment',
-        'payment_amount', 'Payment amount'
+        'payment_amount', 'Payment amount',
+        'amount_payable', 'Amount payable'
       ];
       sectionAFields.forEach(field => clearFieldIfExists(field));
     }
@@ -699,12 +707,16 @@ router.post('/submit-rights', async (req, res) => {
     formData = cleanedFormData;
 
     // Calculate amount payable based on shares accepted and price per share
-    const pricePerShare = 1.50;
-    
-    if (formData.action_type === 'full_acceptance') {
-      formData.amount_payable = (formData.rights_issue * pricePerShare).toFixed(2);
-      formData.shares_accepted = formData.rights_issue;
-      formData.shares_renounced = 0;
+    const pricePerShare = 7;
+ // In your forms.js, update the calculation section:
+if (formData.action_type === 'full_acceptance') {
+  const rightsAmount = (formData.rights_issue * pricePerShare);
+  const additionalAmount = formData.apply_additional ? (formData.additional_shares * pricePerShare) : 0;
+  
+  formData.amount_payable = (rightsAmount + additionalAmount).toFixed(2);
+  formData.shares_accepted = formData.rights_issue + (formData.apply_additional ? parseFloat(formData.additional_shares) || 0 : 0);
+  formData.shares_renounced = 0;
+
     } else if (formData.action_type === 'partial_acceptance') {
       formData.amount_payable = (formData.shares_accepted * pricePerShare).toFixed(2);
       formData.shares_renounced = formData.rights_issue - formData.shares_accepted;
@@ -712,6 +724,10 @@ router.post('/submit-rights', async (req, res) => {
       formData.amount_payable = 0;
       formData.shares_accepted = 0;
       formData.shares_renounced = formData.rights_issue;
+    }else if (formData.action_type === 'apply_additional') {
+      formData.amount_payable = (formData.additional_shares * pricePerShare).toFixed(2);
+      formData.shares_accepted = formData.additional_shares + formData.rights_issue;
+      formData.shares_renounced = 0;
     }
 
     // Validate required fields
@@ -737,7 +753,7 @@ router.post('/submit-rights', async (req, res) => {
 
      // Additional validation for additional shares
      if (formData.apply_additional === 'true' || formData.apply_additional === true) {
-       requiredFields = [...requiredFields, 'additional_shares', 'additional_amount'];
+       requiredFields = [...requiredFields, 'additional_shares'];
        
        // Payment fields only required if applying for additional shares with shares > 0
        if (parseInt(formData.additional_shares) > 0) {
