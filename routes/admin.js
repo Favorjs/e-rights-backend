@@ -394,7 +394,10 @@ router.get('/rights-submissions', async (req, res) => {
         action_type,
         reg_account_number,
         name,
-        
+        amount_payable, 
+        additional_shares, 
+        apply_additional, 
+        shares_renounced,  
         holdings,
         rights_issue,
         holdings_after,
@@ -497,6 +500,10 @@ router.get('/export-rights', async (req, res) => {
         rights_issue,
         action_type,
         amount_due,
+         amount_payable,       
+        additional_shares,    
+        apply_additional,      
+        shares_renounced,   
         status,
         created_at
       FROM rights_submissions
@@ -520,10 +527,10 @@ router.get('/export-rights', async (req, res) => {
     
     const result = await pool.query(query, queryParams);
     
-    if (format === 'csv') {
-      const csvHeader = 'CHN,REG ACCOUNT NUMBER,Name,Holdings,Rights Issue,Action Type,Amount Due,Status,Created At\n';
+   if (format === 'csv') {
+      const csvHeader = 'CHN,REG ACCOUNT,Name,Holdings,Rights Issue,Action Type,Amount Due,Amount Payable,Additional Shares,Shares Renounced,Status,Created At\n';
       const csvData = result.rows.map(row => 
-        `"${row.chn}","${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},"${row.action_type || ''}",${row.amount_due},"${row.status}","${row.created_at}"`
+        `"${row.chn}","${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},"${row.action_type || ''}",${row.amount_due},${row.amount_payable || '0'},${row.additional_shares || '0'},${row.shares_renounced || '0'},"${row.status}","${row.created_at}"`
       ).join('\n');
       
       res.setHeader('Content-Type', 'text/csv');
