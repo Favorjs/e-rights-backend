@@ -11,11 +11,92 @@ const { sendRightsSubmissionNotification,  sendShareholderConfirmation } = requi
 const FileUpload = require('../utils/fileUpload'); // Cloudinary utility
 
 // Helper: generate filled rights PDF as Buffer from provided fields
+// Helper: generate filled rights PDF as Buffer from provided fields
 async function generateRightsPdfBuffer(formData) {
   let pdfBytes;
   let pdfDoc;
   let form;
-  
+
+  const embedSignatureImage = async (signatureUrl, pageIndex = 0, position = null) => {
+    try {
+      if (!signatureUrl) {
+        console.warn('No signature URL provided');
+        return false;
+      }
+      
+      // Fetch the image from Cloudinary URL
+      const cloudinary = require('../config/cloudinary');
+      const imageUrl = cloudinary.url(signatureUrl, { 
+        secure: true,
+        transformation: [
+          { width: 150, height: 60, crop: 'fit' }, // Optimal size for signature
+          { quality: 'auto' }
+        ]
+      });
+      
+      console.log(`Fetching signature from: ${imageUrl}`);
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        console.warn(`Failed to fetch signature image: ${response.status}`);
+        return false;
+      }
+      
+      const imageBuffer = await response.arrayBuffer();
+      const uint8Array = new Uint8Array(imageBuffer);
+      
+      // Determine image type and embed
+      let embeddedImage;
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType?.includes('png')) {
+        embeddedImage = await pdfDoc.embedPng(uint8Array);
+      } else if (contentType?.includes('jpeg') || contentType?.includes('jpg')) {
+        embeddedImage = await pdfDoc.embedJpg(uint8Array);
+      } else {
+        console.warn(`Unsupported image format: ${contentType}`);
+        return false;
+      }
+      
+      const pages = pdfDoc.getPages();
+      const page = pages[pageIndex] || pages[0];
+      const { width, height } = page.getSize();
+      
+      // Use provided position or default to bottom of page
+      let x, y;
+      
+      if (position) {
+        x = position.x;
+        y = position.y;
+      } else {
+        // Default signature positions for page 2 (where signatures usually go)
+        if (pageIndex === 1) { // Second page (index 1)
+          // Position for first signature
+          x = 100;
+          y = 120;
+        } else {
+          // Fallback position
+          x = 50;
+          y = 100;
+        }
+      }
+      
+      // Draw the signature image
+      page.drawImage(embeddedImage, {
+        x: x,
+        y: y,
+        width: 120, // Standard signature width
+        height: 40, // Standard signature height
+      });
+      
+      console.log(`✅ Signature embedded on page ${pageIndex + 1} at (${x}, ${y})`);
+      return true;
+      
+    } catch (error) {
+      console.error(`Error embedding signature:`, error);
+      return false;
+    }
+  };
+
   try {
     // Load PDF template
     if (false && process.env.NODE_ENV === 'production') {
@@ -108,12 +189,9 @@ async function generateRightsPdfBuffer(formData) {
       'bank_name', 'Bank name',
       'cheque_number', 'Cheque number',
       'branch', 'Branch',
-      'amount_payable', 'Amount payable',
-
       
       // Section B - Renunciation/Partial
       'shares_accepted', 'Shares accepted',
-      'amount_payable', 'Amount payable',
       'shares_renounced', 'Shares renounced',
       'accept_partial', 'Accept partial',
       'renounce_rights', 'Renounce rights',
@@ -131,9 +209,13 @@ async function generateRightsPdfBuffer(formData) {
       setFieldIfExists('accept_full', '✓') ||
         setFieldIfExists('Accept full allotment', '✓');
 
+      setFieldIfExists('amount_payable', formData.amount_payable?.toString() || '') ||
+        setFieldIfExists('Amount payable', formData.amount_payable?.toString() || '');
+
       // Additional shares logic
-      if (formData.apply_additional) {
+      if (formData.apply_additional && formData.additional_shares > 0) {
         console.log('Processing ADDITIONAL SHARES section');
+        
         setFieldIfExists('apply_additional', '✓') ||
           setFieldIfExists('Apply for additional shares', '✓');
 
@@ -145,14 +227,8 @@ async function generateRightsPdfBuffer(formData) {
 
         setFieldIfExists('accept_smaller_allotment', formData.accept_smaller_allotment ? '✓' : '') ||
           setFieldIfExists('Accept smaller allotment', formData.accept_smaller_allotment ? '✓' : '');
-      }
 
-      // Payment details for Section A (only if additional shares or full acceptance with payment)
-      if (formData.apply_additional && formData.additional_shares > 0) {
-        // Use the additional payment fields for additional shares
-        setFieldIfExists('payment_amount', formData.additional_amount?.toString() || '') ||
-          setFieldIfExists('Payment amount', formData.additional_amount?.toString() || '');
-
+        // Payment details (bank, cheque, etc.) — optional
         setFieldIfExists('bank_name', formData.additional_payment_bank_name || '') ||
           setFieldIfExists('Bank name', formData.additional_payment_bank_name || '');
 
@@ -161,11 +237,6 @@ async function generateRightsPdfBuffer(formData) {
 
         setFieldIfExists('branch', formData.additional_payment_branch || '') ||
           setFieldIfExists('Branch', formData.additional_payment_branch || '');
-          
-        setFieldIfExists('amount_payable', formData.amount_payable?.toString() || '') ||
-          setFieldIfExists('Amount payable', formData.amount_payable?.toString() || '');
-
-
       } else if (formData.payment_amount) {
         // Fallback to original payment fields if additional shares not applied
         setFieldIfExists('payment_amount', formData.payment_amount?.toString() || '') ||
@@ -184,7 +255,7 @@ async function generateRightsPdfBuffer(formData) {
       // ENSURE SECTION B IS CLEAR for Full Acceptance
       const sectionBFields = [
         'shares_accepted', 'Shares accepted',
-        'amount_payable', 'Amount payable', 
+        // 'amount_payable', 'Amount payable', 
         'shares_renounced', 'Shares renounced',
         'accept_partial', 'Accept partial',
         'renounce_rights', 'Renounce rights',
@@ -282,6 +353,35 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('signature_type', formData.signature_type === 'single' ? 'Single' : 'Joint') ||
       setFieldIfExists('Signature type', formData.signature_type === 'single' ? 'Single' : 'Joint');
 
+   // EMBED SIGNATURES - CORRECTED VERSION
+console.log('Embedding signature images...');
+if (formData.signature_paths && Array.isArray(formData.signature_paths)) {
+  for (let i = 0; i < formData.signature_paths.length; i++) {
+    const signaturePath = formData.signature_paths[i];
+    if (signaturePath) {
+      console.log(`Processing signature ${i + 1}: ${signaturePath}`);
+      
+      // Define signature positions for page 2 (index 1) where signatures are located
+      let position;
+      if (i === 0) {
+        // First signature position - matches "Signature" field location
+        position = { x: 70, y: 155 };  // Adjust these coordinates based on your PDF
+      } else if (i === 1) {
+        // Second signature position - matches "2nd Signature" field location
+        position = { x: 320, y: 155 };  // Adjust these coordinates based on your PDF
+      }
+      
+      // Embed on page 2 (index 1) where signature fields are
+      const success = await embedSignatureImage(signaturePath, 1, position);
+      
+      if (success) {
+        console.log(`✅ Successfully embedded signature ${i + 1}`);
+      } else {
+        console.warn(`❌ Failed to embed signature ${i + 1}`);
+      }
+    }
+  }
+}
     // Flatten the form if available
     if (form) {
       form.flatten();
@@ -432,6 +532,7 @@ async function uploadPdfToCloudinary(pdfBuffer, fileName) {
     throw error;
   }
 }
+''
 
 
 // Helper function to clean numeric fields
@@ -487,7 +588,7 @@ async function handleReceiptUpload(files) {
       const fs = require('fs').promises;
       fileBuffer = await fs.readFile(receiptFile.tempFilePath);
     } else if (receiptFile.data) {
-      fileBuffer = receiptFile.data;
+ fileBuffer = receiptFile.data;
     } else if (receiptFile.buffer) {
       fileBuffer = receiptFile.buffer;
     } else {
@@ -685,6 +786,12 @@ router.post('/preview-rights', async (req, res) => {
 // Submit rights issue form with comprehensive validation
 router.post('/submit-rights', async (req, res) => {
   try {
+
+
+
+
+
+
     let formData = req.body;
     const files = req.files;
     
@@ -696,6 +803,71 @@ router.post('/submit-rights', async (req, res) => {
       'additional_payment_cheque_number', 'partial_payment_cheque_number'
     ];
     
+
+ const validateImageFile = (file, fieldName) => {
+      if (!file) return { valid: false, error: `${fieldName} is required` };
+      
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+      const allowedExtensions = ['.jpg', '.jpeg', '.png'];
+      
+      // Check MIME type
+      if (!allowedMimeTypes.includes(file.mimetype)) {
+        return { 
+          valid: false, 
+          error: `${fieldName} must be a JPG, JPEG, or PNG image` 
+        };
+      }
+    // Check file extension
+      const fileName = file.name.toLowerCase();
+      const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+      if (!hasValidExtension) {
+        return { 
+          valid: false, 
+          error: `${fieldName} must have a .jpg, .jpeg, or .png extension` 
+        };
+      }
+      
+      // Check file size (5MB)
+      const maxSize = 5 * 1024 * 1024;
+      if (file.size > maxSize) {
+        return { 
+          valid: false, 
+          error: `${fieldName} must be less than 5MB` 
+        };
+      }
+      
+      return { valid: true };
+    };
+    
+    // Validate receipt
+    if (files && files.receipt) {
+      const validation = validateImageFile(files.receipt, 'Receipt');
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: 'Invalid file',
+          message: validation.error
+        });
+      }
+    }
+    
+    // Validate signatures
+    if (files) {
+      let signatureIndex = 0;
+      while (files[`signature_${signatureIndex}`]) {
+        const validation = validateImageFile(
+          files[`signature_${signatureIndex}`], 
+          `Signature ${signatureIndex + 1}`
+        );
+        if (!validation.valid) {
+          return res.status(400).json({
+            error: 'Invalid file',
+            message: validation.error
+          });
+        }
+        signatureIndex++;
+      }
+    }
+
     // Create a new object with cleaned numeric fields
     const cleanedFormData = { ...formData };
     numericFields.forEach(field => {
@@ -838,11 +1010,17 @@ if (formData.action_type === 'full_acceptance') {
      message: 'At least one signature is required to submit the form'
    });
  }
+
+
+ 
 // Generate filled PDF and upload to Cloudinary
 
 // Generate filled PDF and upload to Cloudinary
 try {
-  const pdfBuffer = await generateRightsPdfBuffer(formData);
+ const pdfBuffer = await generateRightsPdfBuffer({
+    ...formData,
+    signature_paths: signaturePublicIds 
+  });
   const fileName = `rights-form-${formData.reg_account_number}-${Date.now()}.pdf`;
 
   // FIX: Get the Cloudinary result and extract the public_id
@@ -1221,7 +1399,9 @@ router.post('/', [
       account_number,
       bvn,
       signature_file,
-      receipt_file
+      receipt_file,
+     
+        
     } = req.body;
 
     // Get shareholder details to calculate amounts
