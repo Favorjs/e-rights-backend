@@ -7,7 +7,7 @@ const fs = require('fs').promises;
 const path = require('path');
 // Serve static files from uploads directory
 // app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-const { sendRightsSubmissionNotification,  sendShareholderConfirmation } = require('../services/emailService');
+const { sendRightsSubmissionNotification, sendShareholderConfirmation } = require('../services/emailService');
 const FileUpload = require('../utils/fileUpload'); // Cloudinary utility
 
 // Helper: generate filled rights PDF as Buffer from provided fields
@@ -23,31 +23,31 @@ async function generateRightsPdfBuffer(formData) {
         console.warn('No signature URL provided');
         return false;
       }
-      
+
       // Fetch the image from Cloudinary URL
       const cloudinary = require('../config/cloudinary');
-      const imageUrl = cloudinary.url(signatureUrl, { 
+      const imageUrl = cloudinary.url(signatureUrl, {
         secure: true,
         transformation: [
           { width: 150, height: 60, crop: 'fit' }, // Optimal size for signature
           { quality: 'auto' }
         ]
       });
-      
+
       console.log(`Fetching signature from: ${imageUrl}`);
       const response = await fetch(imageUrl);
       if (!response.ok) {
         console.warn(`Failed to fetch signature image: ${response.status}`);
         return false;
       }
-      
+
       const imageBuffer = await response.arrayBuffer();
       const uint8Array = new Uint8Array(imageBuffer);
-      
+
       // Determine image type and embed
       let embeddedImage;
       const contentType = response.headers.get('content-type');
-      
+
       if (contentType?.includes('png')) {
         embeddedImage = await pdfDoc.embedPng(uint8Array);
       } else if (contentType?.includes('jpeg') || contentType?.includes('jpg')) {
@@ -56,14 +56,14 @@ async function generateRightsPdfBuffer(formData) {
         console.warn(`Unsupported image format: ${contentType}`);
         return false;
       }
-      
+
       const pages = pdfDoc.getPages();
       const page = pages[pageIndex] || pages[0];
       const { width, height } = page.getSize();
-      
+
       // Use provided position or default to bottom of page
       let x, y;
-      
+
       if (position) {
         x = position.x;
         y = position.y;
@@ -79,7 +79,7 @@ async function generateRightsPdfBuffer(formData) {
           y = 100;
         }
       }
-      
+
       // Draw the signature image
       page.drawImage(embeddedImage, {
         x: x,
@@ -87,10 +87,10 @@ async function generateRightsPdfBuffer(formData) {
         width: 120, // Standard signature width
         height: 40, // Standard signature height
       });
-      
+
       console.log(`✅ Signature embedded on page ${pageIndex + 1} at (${x}, ${y})`);
       return true;
-      
+
     } catch (error) {
       console.error(`Error embedding signature:`, error);
       return false;
@@ -119,11 +119,11 @@ async function generateRightsPdfBuffer(formData) {
     // Load the PDF document and get the form
     pdfDoc = await PDFDocument.load(pdfBytes);
     form = pdfDoc.getForm();
-    
+
     if (!form) {
       throw new Error('Failed to get form from PDF document');
     }
-    
+
     // Helper function to set form fields if they exist
     const setFieldIfExists = (fieldName, value) => {
       try {
@@ -155,7 +155,7 @@ async function generateRightsPdfBuffer(formData) {
     // Basic shareholder info (always populate)
     setFieldIfExists('reg_account_number', formData.reg_account_number) ||
       setFieldIfExists('Registration account number', formData.reg_account_number);
-    
+
     setFieldIfExists('shareholder_name', formData.name) ||
       setFieldIfExists('Name', formData.name);
 
@@ -189,7 +189,7 @@ async function generateRightsPdfBuffer(formData) {
       'bank_name', 'Bank name',
       'cheque_number', 'Cheque number',
       'branch', 'Branch',
-      
+
       // Section B - Renunciation/Partial
       'shares_accepted', 'Shares accepted',
       'shares_renounced', 'Shares renounced',
@@ -204,7 +204,7 @@ async function generateRightsPdfBuffer(formData) {
     // CONDITIONAL FIELDS BASED ON ACTION TYPE
     if (formData.action_type === 'full_acceptance') {
       console.log('Processing FULL ACCEPTANCE section');
-      
+
       // SECTION A: Full Acceptance fields
       setFieldIfExists('accept_full', '✓') ||
         setFieldIfExists('Accept full allotment', '✓');
@@ -215,7 +215,7 @@ async function generateRightsPdfBuffer(formData) {
       // Additional shares logic
       if (formData.apply_additional && formData.additional_shares > 0) {
         console.log('Processing ADDITIONAL SHARES section');
-        
+
         setFieldIfExists('apply_additional', '✓') ||
           setFieldIfExists('Apply for additional shares', '✓');
 
@@ -262,10 +262,15 @@ async function generateRightsPdfBuffer(formData) {
         'trade_rights', 'Trade rights'
       ];
       sectionBFields.forEach(field => clearFieldIfExists(field));
+      clearFieldIfExists('B_amount_payable');
+      clearFieldIfExists('B Amount payable');
+      clearFieldIfExists('amount_payable_section_b');
+
+
 
     } else if (formData.action_type === 'renunciation_partial') {
       console.log('Processing RENUNCIATION/PARTIAL section');
-      
+
       // SECTION B: Renunciation/Partial Acceptance fields
       setFieldIfExists('shares_accepted', formData.shares_accepted?.toString() || '') ||
         setFieldIfExists('Shares accepted', formData.shares_accepted?.toString() || '');
@@ -301,7 +306,7 @@ async function generateRightsPdfBuffer(formData) {
       // ENSURE SECTION A IS CLEAR for Renunciation/Partial
       const sectionAFields = [
         'accept_full', 'Accept full allotment',
-        'apply_additional', 'Apply for additional shares', 
+        'apply_additional', 'Apply for additional shares',
         'additional_shares', 'Additional shares applied',
         'additional_amount', 'Additional amount payable',
         'accept_smaller_allotment', 'Accept smaller allotment',
@@ -353,40 +358,40 @@ async function generateRightsPdfBuffer(formData) {
     setFieldIfExists('signature_type', formData.signature_type === 'single' ? 'Single' : 'Joint') ||
       setFieldIfExists('Signature type', formData.signature_type === 'single' ? 'Single' : 'Joint');
 
-   // EMBED SIGNATURES - CORRECTED VERSION
-console.log('Embedding signature images...');
-if (formData.signature_paths && Array.isArray(formData.signature_paths)) {
-  for (let i = 0; i < formData.signature_paths.length; i++) {
-    const signaturePath = formData.signature_paths[i];
-    if (signaturePath) {
-      console.log(`Processing signature ${i + 1}: ${signaturePath}`);
-      
-      // Define signature positions for page 2 (index 1) where signatures are located
-      let position;
-      if (i === 0) {
-        // First signature position - matches "Signature" field location
-        position = { x: 70, y: 155 };  // Adjust these coordinates based on your PDF
-      } else if (i === 1) {
-        // Second signature position - matches "2nd Signature" field location
-        position = { x: 320, y: 155 };  // Adjust these coordinates based on your PDF
-      }
-      
-      // Embed on page 2 (index 1) where signature fields are
-      const success = await embedSignatureImage(signaturePath, 1, position);
-      
-      if (success) {
-        console.log(`✅ Successfully embedded signature ${i + 1}`);
-      } else {
-        console.warn(`❌ Failed to embed signature ${i + 1}`);
+    // EMBED SIGNATURES - CORRECTED VERSION
+    console.log('Embedding signature images...');
+    if (formData.signature_paths && Array.isArray(formData.signature_paths)) {
+      for (let i = 0; i < formData.signature_paths.length; i++) {
+        const signaturePath = formData.signature_paths[i];
+        if (signaturePath) {
+          console.log(`Processing signature ${i + 1}: ${signaturePath}`);
+
+          // Define signature positions for page 2 (index 1) where signatures are located
+          let position;
+          if (i === 0) {
+            // First signature position - matches "Signature" field location
+            position = { x: 70, y: 155 };  // Adjust these coordinates based on your PDF
+          } else if (i === 1) {
+            // Second signature position - matches "2nd Signature" field location
+            position = { x: 320, y: 155 };  // Adjust these coordinates based on your PDF
+          }
+
+          // Embed on page 2 (index 1) where signature fields are
+          const success = await embedSignatureImage(signaturePath, 1, position);
+
+          if (success) {
+            console.log(`✅ Successfully embedded signature ${i + 1}`);
+          } else {
+            console.warn(`❌ Failed to embed signature ${i + 1}`);
+          }
+        }
       }
     }
-  }
-}
     // Flatten the form if available
     if (form) {
       form.flatten();
     }
-    
+
   } catch (error) {
     console.error('Error generating PDF:', error);
     if (!pdfDoc && pdfBytes) {
@@ -415,7 +420,7 @@ async function generateRightsPdfBufferjustDownload(formData) {
   let pdfBytes;
   let pdfDoc;
   let form;
-  
+
   try {
     // Load PDF template
     if (false && process.env.NODE_ENV === 'production') {
@@ -438,11 +443,11 @@ async function generateRightsPdfBufferjustDownload(formData) {
     // Load the PDF document and get the form
     pdfDoc = await PDFDocument.load(pdfBytes);
     form = pdfDoc.getForm();
-    
+
     if (!form) {
       throw new Error('Failed to get form from PDF document');
     }
-    
+
     // Helper function to set form fields if they exist
     const setFieldIfExists = (fieldName, value) => {
       try {
@@ -474,7 +479,7 @@ async function generateRightsPdfBufferjustDownload(formData) {
     // Basic shareholder info (always populate)
     setFieldIfExists('reg_account_number', formData.reg_account_number) ||
       setFieldIfExists('Registration account number', formData.reg_account_number);
-    
+
     setFieldIfExists('shareholder_name', formData.name) ||
       setFieldIfExists('Name', formData.name);
 
@@ -488,12 +493,12 @@ async function generateRightsPdfBufferjustDownload(formData) {
     setFieldIfExists('amount_due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`) ||
       setFieldIfExists('Amount Due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`);
 
-  
+
     // Flatten the form if available
     if (form) {
       form.flatten();
     }
-    
+
   } catch (error) {
     console.error('Error generating PDF:', error);
     if (!pdfDoc && pdfBytes) {
@@ -522,8 +527,8 @@ async function generateRightsPdfBufferjustDownload(formData) {
 async function uploadPdfToCloudinary(pdfBuffer, fileName) {
   try {
     const result = await FileUpload.uploadBuffer(
-      pdfBuffer, 
-      fileName, 
+      pdfBuffer,
+      fileName,
       'rights-submissions/filled-forms'
     );
     return result.public_id;
@@ -552,7 +557,7 @@ const trimToMaxLength = (str, maxLength = 500) => {
 // Helper function with retry logic for Cloudinary uploads
 async function uploadWithRetry(uploadFunction, maxRetries = 3) {
   let lastError;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Upload attempt ${attempt} of ${maxRetries}`);
@@ -560,7 +565,7 @@ async function uploadWithRetry(uploadFunction, maxRetries = 3) {
     } catch (error) {
       lastError = error;
       console.warn(`Upload attempt ${attempt} failed:`, error.message);
-      
+
       if (attempt < maxRetries) {
         // Wait before retrying (exponential backoff)
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
@@ -569,7 +574,7 @@ async function uploadWithRetry(uploadFunction, maxRetries = 3) {
       }
     }
   }
-  
+
   throw lastError; // All retries failed
 }
 
@@ -579,48 +584,48 @@ async function handleReceiptUpload(files) {
 
   try {
     const receiptFile = files.receipt;
-    
+
     // Get the file data as a buffer (same as before)
     let fileBuffer;
     let fileName = receiptFile.name || `receipt-${Date.now()}`;
-    
+
     if (receiptFile.tempFilePath) {
       const fs = require('fs').promises;
       fileBuffer = await fs.readFile(receiptFile.tempFilePath);
     } else if (receiptFile.data) {
- fileBuffer = receiptFile.data;
+      fileBuffer = receiptFile.data;
     } else if (receiptFile.buffer) {
       fileBuffer = receiptFile.buffer;
     } else {
       throw new Error('No valid file data found in the receipt upload');
     }
-    
+
     // Validate file size
     const maxFileSize = 10 * 1024 * 1024; // 10MB
     if (fileBuffer.length > maxFileSize) {
       throw new Error(`File size ${(fileBuffer.length / 1024 / 1024).toFixed(2)}MB exceeds maximum allowed size of 10MB`);
     }
-    
+
     // Ensure valid file extension
     if (!fileName.includes('.')) {
       const mime = receiptFile.mimetype || '';
       const ext = mime.split('/')[1] || 'bin';
       fileName = `${fileName}.${ext}`;
     }
-    
+
     console.log(`Uploading receipt to Cloudinary: ${fileName} (${fileBuffer.length} bytes)`);
-    
+
     // Use retry logic for the upload
     const receiptResult = await uploadWithRetry(async () => {
       return await FileUpload.uploadReceipt(fileBuffer, fileName);
     }, 3); // Retry up to 3 times
-    
+
     console.log(`Receipt uploaded successfully: ${receiptResult.public_id}`);
     return receiptResult.public_id;
-    
+
   } catch (error) {
     console.error('Error uploading receipt to Cloudinary:', error);
-    
+
     // Improved error messages
     if (error.http_code === 499 || error.name === 'TimeoutError') {
       throw new Error('Upload timeout. The file might be too large or your internet connection is slow. Please try a smaller file.');
@@ -641,11 +646,11 @@ async function handleFileUpload(files, fieldName, folder) {
 
   try {
     const file = files[fieldName];
-    
+
     // Get the file data as a buffer
     let fileBuffer;
     let fileName = file.name || `${fieldName}-${Date.now()}`;
-    
+
     // Check if we're using temp files (from express-fileupload)
     if (file.tempFilePath) {
       // Read the temp file into a buffer
@@ -660,7 +665,7 @@ async function handleFileUpload(files, fieldName, folder) {
     } else {
       throw new Error(`No valid file data found for ${fieldName}`);
     }
-    
+
     // Ensure we have a valid file extension
     if (!fileName.includes('.')) {
       // Try to determine extension from mimetype if no extension
@@ -668,14 +673,14 @@ async function handleFileUpload(files, fieldName, folder) {
       const ext = mime.split('/')[1] || 'bin';
       fileName = `${fileName}.${ext}`;
     }
-    
+
     // Upload the file buffer to Cloudinary
     const result = await FileUpload.uploadBuffer(
       fileBuffer,
       fileName,
       `rights-submissions/${folder}`
     );
-    
+
     return result.public_id;
   } catch (error) {
     console.error(`Error uploading ${fieldName} to Cloudinary:`, error);
@@ -684,38 +689,44 @@ async function handleFileUpload(files, fieldName, folder) {
 }
 
 // Handle multiple signature uploads
+// Handle multiple signature uploads
 async function handleSignatureUploads(files) {
   const signaturePaths = [];
   
   if (!files) return signaturePaths;
   
   try {
-    // Handle single signature (signature_0 for consistency with client-side)
-    if (files.signature_0) {
-      const signatureId = await handleFileUpload(files, 'signature_0', 'signatures');
-      if (signatureId) signaturePaths.push(signatureId);
-    }
-    
-    // Handle multiple signatures (signature_0, signature_1, etc.)
+    // ✅ ONLY ONE LOOP - processes signature_0, signature_1, etc.
     let index = 0;
     while (files[`signature_${index}`]) {
+      console.log(`Processing signature_${index}...`);
       const signatureId = await handleFileUpload(files, `signature_${index}`, 'signatures');
-      if (signatureId) signaturePaths.push(signatureId);
+      if (signatureId) {
+        signaturePaths.push(signatureId);
+        console.log(`✅ Uploaded signature_${index}: ${signatureId}`);
+      }
       index++;
     }
     
-    // Backward compatibility with old format (signature1, signature2, etc.)
-    let i = 1;
-    while (files[`signature${i}`] && signaturePaths.length === 0) {
-      const signatureId = await handleFileUpload(files, `signature${i}`, 'signatures');
-      if (signatureId) signaturePaths.push(signatureId);
-      i++;
+    // Backward compatibility ONLY if no signatures found with new format
+    if (signaturePaths.length === 0) {
+      let i = 1;
+      while (files[`signature${i}`]) {
+        console.log(`Processing signature${i} (legacy)...`);
+        const signatureId = await handleFileUpload(files, `signature${i}`, 'signatures');
+        if (signatureId) {
+          signaturePaths.push(signatureId);
+          console.log(`✅ Uploaded signature${i}: ${signatureId}`);
+        }
+        i++;
+      }
     }
     
+    console.log(`Total signatures uploaded: ${signaturePaths.length}`);
     return signaturePaths;
+    
   } catch (error) {
     console.error('Error uploading signatures:', error);
-    // If we have partial uploads, clean them up
     if (signaturePaths.length > 0) {
       try {
         await Promise.all(signaturePaths.map(publicId => 
@@ -723,7 +734,7 @@ async function handleSignatureUploads(files) {
         ));
       } catch (cleanupError) {
         console.error('Error cleaning up failed signature uploads:', cleanupError);
-      }
+      } 
     }
     throw new Error('Failed to upload one or more signatures. Please try again with valid image files.');
   }
@@ -740,7 +751,7 @@ const generatePaymentAccountNumber = () => {
 router.post('/preview-rights', async (req, res) => {
   try {
     const formData = req.body;
-    
+
     // Validate required fields based on action type
     let requiredFields = [
       'stockbroker', 'chn', 'action_type', 'contact_name', 'next_of_kin',
@@ -752,9 +763,9 @@ router.post('/preview-rights', async (req, res) => {
     } else {
       requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
     }
-    
+
     const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
-    
+
     if (missingFields.length > 0) {
       return res.status(400).json({
         error: 'Missing required fields',
@@ -763,24 +774,24 @@ router.post('/preview-rights', async (req, res) => {
       });
     }
 
-  
-      // Generate PDF buffer
-      const pdfBuffer = await generateRightsPdfBuffer(formData);
-    
-      // Return PDF with proper headers
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline; filename="rights-form-preview.pdf"');
-      res.setHeader('Content-Length', pdfBuffer.length);
-      res.send(pdfBuffer);
-      
-    } catch (error) {
-      console.error('Error generating preview:', error);
-      res.status(500).json({ 
-        error: 'Failed to generate preview',
-        message: error.message 
-      });
-    }
-  });
+
+    // Generate PDF buffer
+    const pdfBuffer = await generateRightsPdfBuffer(formData);
+
+    // Return PDF with proper headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="rights-form-preview.pdf"');
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('Error generating preview:', error);
+    res.status(500).json({
+      error: 'Failed to generate preview',
+      message: error.message
+    });
+  }
+});
 
 
 // Submit rights issue form with comprehensive validation
@@ -794,7 +805,7 @@ router.post('/submit-rights', async (req, res) => {
 
     let formData = req.body;
     const files = req.files;
-    
+
     // Clean numeric fields
     const numericFields = [
       'shareholder_id', 'stockbroker', 'additional_shares', 'additional_amount',
@@ -802,43 +813,43 @@ router.post('/submit-rights', async (req, res) => {
       'holdings', 'rights_issue', 'holdings_after', 'amount_due',
       'additional_payment_cheque_number', 'partial_payment_cheque_number'
     ];
-    
 
- const validateImageFile = (file, fieldName) => {
+
+    const validateImageFile = (file, fieldName) => {
       if (!file) return { valid: false, error: `${fieldName} is required` };
-      
+
       const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
       const allowedExtensions = ['.jpg', '.jpeg', '.png'];
-      
+
       // Check MIME type
       if (!allowedMimeTypes.includes(file.mimetype)) {
-        return { 
-          valid: false, 
-          error: `${fieldName} must be a JPG, JPEG, or PNG image` 
+        return {
+          valid: false,
+          error: `${fieldName} must be a JPG, JPEG, or PNG image`
         };
       }
-    // Check file extension
+      // Check file extension
       const fileName = file.name.toLowerCase();
       const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
       if (!hasValidExtension) {
-        return { 
-          valid: false, 
-          error: `${fieldName} must have a .jpg, .jpeg, or .png extension` 
+        return {
+          valid: false,
+          error: `${fieldName} must have a .jpg, .jpeg, or .png extension`
         };
       }
-      
+
       // Check file size (5MB)
       const maxSize = 5 * 1024 * 1024;
       if (file.size > maxSize) {
-        return { 
-          valid: false, 
-          error: `${fieldName} must be less than 5MB` 
+        return {
+          valid: false,
+          error: `${fieldName} must be less than 5MB`
         };
       }
-      
+
       return { valid: true };
     };
-    
+
     // Validate receipt
     if (files && files.receipt) {
       const validation = validateImageFile(files.receipt, 'Receipt');
@@ -849,13 +860,13 @@ router.post('/submit-rights', async (req, res) => {
         });
       }
     }
-    
+
     // Validate signatures
     if (files) {
       let signatureIndex = 0;
       while (files[`signature_${signatureIndex}`]) {
         const validation = validateImageFile(
-          files[`signature_${signatureIndex}`], 
+          files[`signature_${signatureIndex}`],
           `Signature ${signatureIndex + 1}`
         );
         if (!validation.valid) {
@@ -875,98 +886,98 @@ router.post('/submit-rights', async (req, res) => {
         cleanedFormData[field] = cleanNumericField(cleanedFormData[field]);
       }
     });
-    
+
     formData = cleanedFormData;
 
     // Calculate amount payable based on shares accepted and price per share
-  const pricePerShare = 7;
+    const pricePerShare = 7;
 
-// Helper function to safely parse numbers
-const safeNumber = (value) => {
-  const num = parseFloat(value);
-  return isNaN(num) ? 0 : num;
-};
+    // Helper function to safely parse numbers
+    const safeNumber = (value) => {
+      const num = parseFloat(value);
+      return isNaN(num) ? 0 : num;
+    };
 
-// Calculate based on action type
-if (formData.action_type === 'full_acceptance') {
-  const rightsAmount = safeNumber(formData.rights_issue) * pricePerShare;
-  
-  let additionalAmount = 0;
-  let additionalShares = 0;
-  
-  if (formData.apply_additional) {
-    additionalShares = safeNumber(formData.additional_shares);
-    additionalAmount = additionalShares * pricePerShare;
-  }
-  
-  formData.amount_payable = (rightsAmount + additionalAmount).toFixed(2);
-  formData.shares_accepted = safeNumber(formData.rights_issue) + additionalShares;
-  formData.shares_renounced = 0;
+    // Calculate based on action type
+    if (formData.action_type === 'full_acceptance') {
+      const rightsAmount = safeNumber(formData.rights_issue) * pricePerShare;
 
-} else if (formData.action_type === 'renunciation_partial') {
-  const sharesAccepted = safeNumber(formData.shares_accepted);
-  formData.amount_payable = (sharesAccepted * pricePerShare).toFixed(2);
-  formData.shares_renounced = safeNumber(formData.rights_issue) - sharesAccepted;
-  
-} else {
-  // Default fallback
-  formData.amount_payable = '0.00';
-  formData.shares_accepted = 0;
-  formData.shares_renounced = safeNumber(formData.rights_issue);
-}
+      let additionalAmount = 0;
+      let additionalShares = 0;
+
+      if (formData.apply_additional) {
+        additionalShares = safeNumber(formData.additional_shares);
+        additionalAmount = additionalShares * pricePerShare;
+      }
+
+      formData.amount_payable = (rightsAmount + additionalAmount).toFixed(2);
+      formData.shares_accepted = safeNumber(formData.rights_issue) + additionalShares;
+      formData.shares_renounced = 0;
+
+    } else if (formData.action_type === 'renunciation_partial') {
+      const sharesAccepted = safeNumber(formData.shares_accepted);
+      formData.amount_payable = (sharesAccepted * pricePerShare).toFixed(2);
+      formData.shares_renounced = safeNumber(formData.rights_issue) - sharesAccepted;
+
+    } else {
+      // Default fallback
+      formData.amount_payable = '0.00';
+      formData.shares_accepted = 0;
+      formData.shares_renounced = safeNumber(formData.rights_issue);
+    }
 
     // Validate required fields
     let requiredFields = [
       'shareholder_id', 'stockbroker', 'chn', 'action_type', 'instructions_read',
       'contact_name', 'next_of_kin', 'daytime_phone', 'mobile_phone', 'email',
-    'account_number', 'bvn',
+      'account_number', 'bvn',
       'signature_type'
     ];
 
-//     if (formData.action_type === 'full_acceptance') {
-//       requiredFields = [...requiredFields, 'accept_full'];
+    //     if (formData.action_type === 'full_acceptance') {
+    //       requiredFields = [...requiredFields, 'accept_full'];
 
-//         if (formData.action_type === 'apply_additional') {
-//     requiredFields = [...requiredFields, 'additional_shares', 'additional_amount', 'payment_amount', 'bank_name', 'branch'];
-//   }
-// } else {
-//   requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
-// }
-   // Updated validation for different action types
-   if (formData.action_type === 'full_acceptance') {
-     requiredFields = [...requiredFields, 'accept_full'];
+    //         if (formData.action_type === 'apply_additional') {
+    //     requiredFields = [...requiredFields, 'additional_shares', 'additional_amount', 'payment_amount', 'bank_name', 'branch'];
+    //   }
+    // } else {
+    //   requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
+    // }
+    // Updated validation for different action types
+    if (formData.action_type === 'full_acceptance') {
+      requiredFields = [...requiredFields, 'accept_full'];
 
-     // Additional validation for additional shares
-     if (formData.apply_additional === 'true' || formData.apply_additional === true) {
-       requiredFields = [...requiredFields, 'additional_shares'];
-       
-       // Payment fields only required if applying for additional shares with shares > 0
-       if (parseInt(formData.additional_shares) > 0) {
-         requiredFields = [
-           ...requiredFields, 
-        
-          
-         ];
-       }
-     }
-   } else if (formData.action_type === 'renunciation_partial') {
-  requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
-  
-  // Payment fields only required if accepting partial shares WITH payment
-  const sharesAccepted = parseInt(formData.shares_accepted) || 0;
-  if (sharesAccepted > 0) {
-    // Only require payment details if shares are being accepted (meaning payment is needed)
-    requiredFields = [
-      ...requiredFields, 
-   
-    ];
-  }
-  // If shares_accepted is 0, no payment details should be required
-}
+      // Additional validation for additional shares
+      if (formData.apply_additional === 'true' || formData.apply_additional === true) {
+        requiredFields = [...requiredFields, 'additional_shares'];
 
-    
+        // Payment fields only required if applying for additional shares with shares > 0
+        if (parseInt(formData.additional_shares) > 0) {
+          requiredFields = [
+            ...requiredFields,
+
+
+          ];
+        }
+      }
+    } else if (formData.action_type === 'renunciation_partial') {
+      requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
+
+      // Payment fields only required if accepting partial shares WITH payment
+      const sharesAccepted = parseInt(formData.shares_accepted) || 0;
+      if (sharesAccepted > 0) {
+        // Only require payment details if shares are being accepted (meaning payment is needed)
+        requiredFields = [
+          ...requiredFields,
+
+        ];
+      }
+      // If shares_accepted is 0, no payment details should be required
+    }
+
+
     const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
-    
+
     if (missingFields.length > 0) {
       return res.status(400).json({
         error: 'Missing required fields',
@@ -980,67 +991,67 @@ if (formData.action_type === 'full_acceptance') {
       SELECT id FROM rights_submissions WHERE shareholder_id = $1
     `;
     const existingForm = await pool.query(existingFormQuery, [formData.shareholder_id]);
-    
+
     if (existingForm.rows.length > 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Form already submitted for this shareholder',
-        message: 'A rights issue form has already been submitted for this shareholder' 
+        message: 'A rights issue form has already been submitted for this shareholder'
       });
     }
-    let filledFormPublicId; 
-   // Upload files to Cloudinary
-// Upload files to Cloudinary with better error handling
-  // Upload files to Cloudinary
-  let receiptPublicId = null;
-  if (files && files.receipt) {
-    receiptPublicId = await handleReceiptUpload(files);
-  } else if (formData.action_type !== 'renounce') {
-    return res.status(400).json({
-      error: 'Receipt required',
-      message: 'Payment receipt is required to submit the form'
-    });
-  }
+    let filledFormPublicId;
+    // Upload files to Cloudinary
+    // Upload files to Cloudinary with better error handling
+    // Upload files to Cloudinary
+    let receiptPublicId = null;
+    if (files && files.receipt) {
+      receiptPublicId = await handleReceiptUpload(files);
+    } else if (formData.action_type !== 'renounce') {
+      return res.status(400).json({
+        error: 'Receipt required',
+        message: 'Payment receipt is required to submit the form'
+      });
+    }
 
 
-// Upload signatures to Cloudinary
- const signaturePublicIds = await handleSignatureUploads(files);
- if (signaturePublicIds.length === 0) {
-   return res.status(400).json({
-     error: 'Signature required',
-     message: 'At least one signature is required to submit the form'
-   });
- }
+    // Upload signatures to Cloudinary
+    const signaturePublicIds = await handleSignatureUploads(files);
+    if (signaturePublicIds.length === 0) {
+      return res.status(400).json({
+        error: 'Signature required',
+        message: 'At least one signature is required to submit the form'
+      });
+    }
 
 
- 
-// Generate filled PDF and upload to Cloudinary
 
-// Generate filled PDF and upload to Cloudinary
-try {
- const pdfBuffer = await generateRightsPdfBuffer({
-    ...formData,
-    signature_paths: signaturePublicIds 
-  });
-  const fileName = `rights-form-${formData.reg_account_number}-${Date.now()}.pdf`;
+    // Generate filled PDF and upload to Cloudinary
 
-  // FIX: Get the Cloudinary result and extract the public_id
-  const cloudinaryResult = await FileUpload.uploadBuffer(
-    pdfBuffer,
-    fileName,
-    'rights-submissions/filled-forms'
-  );
-  filledFormPublicId = cloudinaryResult.public_id; // Extract just the public_id
-  console.log(`✅ PDF uploaded: ${filledFormPublicId}`);
-} catch (pdfError) {
-  console.error('Error generating or uploading PDF:', pdfError);
-  return res.status(500).json({ 
-    error: 'Failed to generate filled form',
-    message: 'PDF generation failed. Please try again.'
-  });
-}
+    // Generate filled PDF and upload to Cloudinary
+    try {
+      const pdfBuffer = await generateRightsPdfBuffer({
+        ...formData,
+        signature_paths: signaturePublicIds
+      });
+      const fileName = `rights-form-${formData.reg_account_number}-${Date.now()}.pdf`;
+
+      // FIX: Get the Cloudinary result and extract the public_id
+      const cloudinaryResult = await FileUpload.uploadBuffer(
+        pdfBuffer,
+        fileName,
+        'rights-submissions/filled-forms'
+      );
+      filledFormPublicId = cloudinaryResult.public_id; // Extract just the public_id
+      console.log(`✅ PDF uploaded: ${filledFormPublicId}`);
+    } catch (pdfError) {
+      console.error('Error generating or uploading PDF:', pdfError);
+      return res.status(500).json({
+        error: 'Failed to generate filled form',
+        message: 'PDF generation failed. Please try again.'
+      });
+    }
 
     // Insert rights submission with Cloudinary public IDs
-  const insertQuery = `
+    const insertQuery = `
   INSERT INTO rights_submissions (
     shareholder_id, instructions_read, stockbroker_id, chn, action_type,
     accept_full, apply_additional, additional_shares, additional_amount,
@@ -1065,65 +1076,65 @@ try {
     // Prepare data for insertion, trimming any strings that are too long
     const insertData = [
       // First 5 fields
-      formData.shareholder_id, 
-      formData.instructions_read, 
-      trimToMaxLength(formData.stockbroker), 
-      trimToMaxLength(formData.chn), 
+      formData.shareholder_id,
+      formData.instructions_read,
+      trimToMaxLength(formData.stockbroker),
+      trimToMaxLength(formData.chn),
       trimToMaxLength(formData.action_type),
-      
+
       // Full acceptance fields (6-14)
-      formData.accept_full, 
-      formData.apply_additional, 
-      formData.additional_shares, 
+      formData.accept_full,
+      formData.apply_additional,
+      formData.additional_shares,
       formData.additional_amount,
-      formData.accept_smaller_allotment, 
-      formData.payment_amount, 
+      formData.accept_smaller_allotment,
+      formData.payment_amount,
       trimToMaxLength(formData.additional_payment_bank_name),
       trimToMaxLength(formData.additional_payment_cheque_number),
       trimToMaxLength(formData.additional_payment_branch),
-      
+
       // Shares and payment info (15-24)
-      formData.shares_accepted, 
-      formData.amount_payable, 
-      formData.shares_renounced, 
-      formData.accept_partial, 
-      formData.renounce_rights, 
+      formData.shares_accepted,
+      formData.amount_payable,
+      formData.shares_renounced,
+      formData.accept_partial,
+      formData.renounce_rights,
       formData.trade_rights,
-      
+
       // Contact info (25-34)
-      trimToMaxLength(formData.contact_name), 
-      trimToMaxLength(formData.next_of_kin), 
-      trimToMaxLength(formData.daytime_phone), 
-      trimToMaxLength(formData.mobile_phone), 
+      trimToMaxLength(formData.contact_name),
+      trimToMaxLength(formData.next_of_kin),
+      trimToMaxLength(formData.daytime_phone),
+      trimToMaxLength(formData.mobile_phone),
       trimToMaxLength(formData.email),
-      trimToMaxLength(formData.bank_name_edividend), 
-      trimToMaxLength(formData.bank_branch_edividend), 
-      trimToMaxLength(formData.account_number), 
+      trimToMaxLength(formData.bank_name_edividend),
+      trimToMaxLength(formData.bank_branch_edividend),
+      trimToMaxLength(formData.account_number),
       trimToMaxLength(formData.bvn),
-      
+
       // Corporate details (35-36)
-      trimToMaxLength(formData.corporate_signatory_names), 
+      trimToMaxLength(formData.corporate_signatory_names),
       trimToMaxLength(formData.corporate_designations),
-      
+
       // Form metadata (37-44)
-      trimToMaxLength(formData.signature_type), 
-      trimToMaxLength(formData.reg_account_number), 
-      trimToMaxLength(formData.name), 
-      formData.holdings, 
+      trimToMaxLength(formData.signature_type),
+      trimToMaxLength(formData.reg_account_number),
+      trimToMaxLength(formData.name),
+      formData.holdings,
       formData.rights_issue,
-      formData.holdings_after, 
-      formData.amount_due, 
-      
+      formData.holdings_after,
+      formData.amount_due,
+
       // File paths (45-47)
-      trimToMaxLength(filledFormPublicId, 500), 
-      trimToMaxLength(receiptPublicId, 500), 
+      trimToMaxLength(filledFormPublicId, 500),
+      trimToMaxLength(receiptPublicId, 500),
       signaturePublicIds,
-      
+
       // Partial payment details (48-50)
       trimToMaxLength(formData.partial_payment_bank_name),
       trimToMaxLength(formData.partial_payment_cheque_number),
       trimToMaxLength(formData.partial_payment_branch),
-      
+
       // Status (51-52)
       'pending',
       new Date()
@@ -1147,7 +1158,7 @@ try {
         ...submissionData,
         filled_form_url: filledFormUrl
       });
-      
+
       // Send confirmation to shareholder with filled form
       await sendShareholderConfirmation({
         ...submissionData,
@@ -1167,9 +1178,9 @@ try {
     });
   } catch (error) {
     console.error('Error submitting rights form:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to submit rights form',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1178,7 +1189,7 @@ try {
 router.get('/download/:publicId', async (req, res) => {
   try {
     const { publicId } = req.params;
-    
+
     const cloudinary = require('../config/cloudinary');
     const downloadUrl = cloudinary.url(publicId, {
       secure: true,
@@ -1193,9 +1204,9 @@ router.get('/download/:publicId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating download URL:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate download URL',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1208,27 +1219,27 @@ router.get('/download-file/:publicId', async (req, res) => {
   try {
     const { publicId } = req.params;
     const { filename } = req.query;
-    
+
     // Get the file from Cloudinary
     const result = await cloudinary.api.resource(publicId, {
       resource_type: 'raw'
     });
-    
+
     // Set the appropriate headers
     res.setHeader('Content-Type', result.format ? `application/${result.format}` : 'application/octet-stream');
     if (filename) {
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     }
-    
+
     // Stream the file
     const response = await axios.get(result.secure_url, { responseType: 'stream' });
     response.data.pipe(res);
   } catch (error) {
     console.error('Error downloading file:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to download file',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1237,25 +1248,25 @@ router.get('/stream-file/:publicId', async (req, res) => {
   try {
     const { publicId } = req.params;
     const { filename } = req.query;
-    
+
     // Get the file from Cloudinary
     const result = await cloudinary.api.resource(publicId);
-    
+
     // Set the appropriate headers
     res.setHeader('Content-Type', result.format ? `image/${result.format}` : 'image/jpeg');
     if (filename) {
       res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     }
-    
+
     // Stream the file
     const response = await axios.get(result.secure_url, { responseType: 'stream' });
     response.data.pipe(res);
   } catch (error) {
     console.error('Error streaming file:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to stream file',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1270,28 +1281,28 @@ router.get('/stream-file/:publicId', async (req, res) => {
     const fileUrl = cloudinary.url(publicId, { secure: true });
 
     const response = await fetch(fileUrl);
-    
+
     if (!response.ok) {
       throw new Error('Failed to fetch file from Cloudinary');
     }
 
     // Set appropriate headers
-    const contentDisposition = filename 
+    const contentDisposition = filename
       ? `attachment; filename="${filename}"`
       : 'attachment';
-    
+
     res.setHeader('Content-Disposition', contentDisposition);
     res.setHeader('Content-Type', response.headers.get('content-type'));
-    
+
     // Stream the file
     const arrayBuffer = await response.arrayBuffer();
     res.send(Buffer.from(arrayBuffer));
-    
+
   } catch (error) {
     console.error('Error streaming file:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to download file',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1300,16 +1311,16 @@ router.get('/stockbrokers', async (req, res) => {
   try {
     const query = 'SELECT id, name, code FROM stockbrokers ORDER BY name';
     const result = await pool.query(query);
-    
+
     res.json({
       success: true,
       data: result.rows
     });
   } catch (error) {
     console.error('Error fetching stockbrokers:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch stockbrokers',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1377,9 +1388,9 @@ router.post('/', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Validation failed',
-        details: errors.array() 
+        details: errors.array()
       });
     }
 
@@ -1400,8 +1411,8 @@ router.post('/', [
       bvn,
       signature_file,
       receipt_file,
-     
-        
+
+
     } = req.body;
 
     // Get shareholder details to calculate amounts
@@ -1411,7 +1422,7 @@ router.post('/', [
       WHERE id = $1
     `;
     const shareholderResult = await pool.query(shareholderQuery, [shareholder_id]);
-    
+
     if (shareholderResult.rows.length === 0) {
       return res.status(404).json({ error: 'Shareholder not found' });
     }
@@ -1437,10 +1448,10 @@ router.post('/', [
       SELECT id FROM forms WHERE shareholder_id = $1
     `;
     const existingForm = await pool.query(existingFormQuery, [shareholder_id]);
-    
+
     if (existingForm.rows.length > 0) {
-      return res.status(400).json({ 
-        error: 'Form already submitted for this shareholder' 
+      return res.status(400).json({
+        error: 'Form already submitted for this shareholder'
       });
     }
 
@@ -1479,9 +1490,9 @@ router.post('/', [
     });
   } catch (error) {
     console.error('Error submitting form:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to submit form',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1490,7 +1501,7 @@ router.post('/', [
 router.get('/shareholder/:shareholderId', async (req, res) => {
   try {
     const { shareholderId } = req.params;
-    
+
     const query = `
       SELECT 
         f.*,
@@ -1505,10 +1516,10 @@ router.get('/shareholder/:shareholderId', async (req, res) => {
     `;
 
     const result = await pool.query(query, [shareholderId]);
-    
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        error: 'Form not found for this shareholder' 
+      return res.status(404).json({
+        error: 'Form not found for this shareholder'
       });
     }
 
@@ -1518,9 +1529,9 @@ router.get('/shareholder/:shareholderId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting form:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get form',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1529,7 +1540,7 @@ router.get('/shareholder/:shareholderId', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const query = `
       SELECT 
         f.*,
@@ -1544,10 +1555,10 @@ router.get('/:id', async (req, res) => {
     `;
 
     const result = await pool.query(query, [id]);
-    
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        error: 'Form not found' 
+      return res.status(404).json({
+        error: 'Form not found'
       });
     }
 
@@ -1557,9 +1568,9 @@ router.get('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting form:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get form',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1569,10 +1580,10 @@ router.patch('/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     if (!['pending', 'completed', 'rejected'].includes(status)) {
-      return res.status(400).json({ 
-        error: 'Invalid status. Must be pending, completed, or rejected' 
+      return res.status(400).json({
+        error: 'Invalid status. Must be pending, completed, or rejected'
       });
     }
 
@@ -1584,10 +1595,10 @@ router.patch('/:id/status', async (req, res) => {
     `;
 
     const result = await pool.query(query, [status, id]);
-    
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
-        error: 'Form not found' 
+      return res.status(404).json({
+        error: 'Form not found'
       });
     }
 
@@ -1598,9 +1609,9 @@ router.patch('/:id/status', async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating form status:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to update form status',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -1613,42 +1624,42 @@ router.post('/generate-rights-form', async (req, res) => {
     // 1. Load the PDF template with form fields
     const templatePath = path.join(__dirname, '../uploads/forms/TIP RIGHTS ISSUE.pdf');
     const pdfBytes = await fs.readFile(templatePath);
-    
+
     // 2. Load PDF document
     const pdfDoc = await PDFDocument.load(pdfBytes);
-    
+
     // 3. Try to get the form and fill the fields if they exist
     try {
       const form = pdfDoc.getForm();
       const fields = form.getFields();
       console.log('Available form fields:', fields.map(f => f.getName()));
-      
+
       // Try to set fields if they exist
       const setFieldIfExists = (fieldName, value) => {
         try {
           const field = form.getField(fieldName);
           if (field) {
+          }
+        } catch (e) {
+          console.warn(`Could not set field '${fieldName}':`, e.message);
         }
-      } catch (e) {
-        console.warn(`Could not set field '${fieldName}':`, e.message);
-      }
-      return false;
-    };
-      
+        return false;
+      };
+
       setFieldIfExists('rightsIssue', rightsIssue.toLocaleString()) ||
-      setFieldIfExists('Rights Allotted', rightsIssue.toLocaleString());
-      
+        setFieldIfExists('Rights Allotted', rightsIssue.toLocaleString());
+
       // Use 'NGN' instead of '₦' to avoid font encoding issues
       setFieldIfExists('amountDue', 'NGN ' + amountDue.toLocaleString()) ||
-      setFieldIfExists('Amount Due', 'NGN ' + amountDue.toLocaleString());
-      
+        setFieldIfExists('Amount Due', 'NGN ' + amountDue.toLocaleString());
+
       // Flatten the form to make fields read-only
       form.flatten();
     } catch (formError) {
       console.warn('Error processing PDF form fields:', formError);
       // Continue even if form processing fails
     }
-    
+
     // Save the filled PDF
     try {
       const filledPdfBytes = await pdfDoc.save();
@@ -1662,10 +1673,10 @@ router.post('/generate-rights-form', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="TIP_RIGHTS_${shareholderName.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.pdf"`);
     res.setHeader('Content-Length', filledPdfBytes.length);
     res.send(Buffer.from(filledPdfBytes));
-    
+
   } catch (error) {
     console.error('PDF generation error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to generate PDF',
       message: error.message,
@@ -1680,15 +1691,15 @@ router.post('/generate-rights-form', async (req, res) => {
 router.post('/generate-basic-pdf', async (req, res) => {
   try {
     const formData = req.body;
-    
+
     // Validate required basic fields
     const requiredFields = [
-      'reg_account_number', 'name', 'holdings', 
+      'reg_account_number', 'name', 'holdings',
       'rights_issue', 'amount_due'
     ];
-    
+
     const missingFields = requiredFields.filter(field => !formData[field]);
-    
+
     if (missingFields.length > 0) {
       return res.status(400).json({
         error: 'Missing required fields',
@@ -1705,18 +1716,18 @@ router.post('/generate-basic-pdf', async (req, res) => {
       contact_name: formData.name || '',
       signature_type: 'single'
     });
-  
+
     // Return PDF with proper headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="TIP_RIGHTS_${formData.reg_account_number}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
-      
+
   } catch (error) {
     console.error('Error generating basic PDF:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate PDF',
-      message: error.message 
+      message: error.message
     });
   }
 });
