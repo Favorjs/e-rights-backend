@@ -394,10 +394,25 @@ router.get('/rights-submissions', async (req, res) => {
         action_type,
         reg_account_number,
         name,
+        bvn,
+        COALESCE(mobile_phone, daytime_phone, '') as phone_number,
+        email,
+        shares_accepted,
         amount_payable, 
-        additional_shares, 
+        additional_shares,
+        additional_amount,
         apply_additional, 
-        shares_renounced,  
+        shares_renounced,
+        payment_amount,
+        COALESCE(
+          CASE 
+            WHEN additional_payment_cheque_number IS NOT NULL THEN 'Cheque'
+            WHEN partial_payment_cheque_number IS NOT NULL THEN 'Cheque'
+            WHEN payment_amount IS NOT NULL THEN 'Electronic Transfer'
+            ELSE 'Cash'
+          END, 'Cash'
+        ) as payment_method,
+        contact_name,
         holdings,
         rights_issue,
         holdings_after,
@@ -420,7 +435,7 @@ router.get('/rights-submissions', async (req, res) => {
     let paramIndex = 1;
     
     if (search) {
-      whereConditions.push(`(LOWER(name) LIKE LOWER($${paramIndex}) OR reg_account_number LIKE $${paramIndex} OR chn LIKE $${paramIndex})`);
+      whereConditions.push(`(LOWER(name) LIKE LOWER($${paramIndex}) OR reg_account_number LIKE $${paramIndex} OR chn LIKE $${paramIndex} OR LOWER(email) LIKE LOWER($${paramIndex}) OR bvn LIKE $${paramIndex})`);
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
@@ -496,14 +511,30 @@ router.get('/export-rights', async (req, res) => {
         chn,
         reg_account_number,
         name,
+        bvn,
+        COALESCE(mobile_phone, daytime_phone, '') as phone_number,
+        email,
         holdings,
         rights_issue,
         action_type,
+        shares_accepted,
         amount_due,
-         amount_payable,       
-        additional_shares,    
-        apply_additional,      
-        shares_renounced,   
+        amount_payable,
+        additional_shares,
+        additional_amount,
+        apply_additional,
+        shares_renounced,
+        payment_amount,
+        COALESCE(
+          CASE 
+            WHEN additional_payment_cheque_number IS NOT NULL THEN 'Cheque'
+            WHEN partial_payment_cheque_number IS NOT NULL THEN 'Cheque'
+            WHEN payment_amount IS NOT NULL THEN 'Electronic Transfer'
+            ELSE 'Cash'
+          END, 'Cash'
+        ) as payment_method,
+        contact_name,
+        holdings_after,
         status,
         created_at
       FROM rights_submissions
@@ -528,10 +559,27 @@ router.get('/export-rights', async (req, res) => {
     const result = await pool.query(query, queryParams);
     
    if (format === 'csv') {
-      const csvHeader = 'CHN,REG ACCOUNT,Name,Holdings,Rights Issue,Action Type,Amount Due,Amount Payable,Additional Shares,Shares Renounced,Status,Created At\n';
-      const csvData = result.rows.map(row => 
-        `"${row.chn}","${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},"${row.action_type || ''}",${row.amount_due},${row.amount_payable || '0'},${row.additional_shares || '0'},${row.shares_renounced || '0'},"${row.status}","${row.created_at}"`
-      ).join('\n');
+      const csvHeader = 'Shareholder\'s Bank Verification Number (BVN),Shareholder\'s Clearing House Number (CHN),Phone Number,Email Address,Alloted Rights,Number of Shares Accepted,Additional Shares Applied for,Total Number of Shares Accepted and Paid For,Value of Ordinary Shares applied for (N),Payment Method (Cash, Cheque or Electronic Transfer),Shareholder Name (Surname),Shareholder Name (Other Names),REG ACCOUNT,Holdings,Holdings After,Rights Issue,Action Type,Amount Due,Amount Payable,Additional Shares,Shares Renounced,Status,Created At\n';
+      const csvData = result.rows.map(row => {
+        // Split name into surname and other names (assuming surname is last word)
+        const nameParts = (row.name || '').trim().split(' ');
+        const surname = nameParts.length > 0 ? nameParts[nameParts.length - 1] : '';
+        const otherNames = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+        
+        // Calculate total shares accepted and paid for
+        const totalShares = (parseFloat(row.holdings || 0) + parseFloat(row.shares_accepted || 0) + parseFloat(row.additional_shares || 0) - parseFloat(row.shares_renounced || 0));
+        
+        // Escape quotes in CSV values
+        const escapeCsv = (value) => {
+          if (value === null || value === undefined) return '';
+          const str = String(value);
+          return str.includes(',') || str.includes('"') || str.includes('\n') 
+            ? `"${str.replace(/"/g, '""')}"` 
+            : str;
+        };
+        
+        return `${escapeCsv(row.bvn)},${escapeCsv(row.chn)},${escapeCsv(row.phone_number)},${escapeCsv(row.email)},${escapeCsv(row.rights_issue || 0)},${escapeCsv(row.shares_accepted || 0)},${escapeCsv(row.additional_shares || 0)},${escapeCsv(totalShares)},${escapeCsv(row.additional_amount || 0)},${escapeCsv(row.payment_method || 'Cash')},${escapeCsv(surname)},${escapeCsv(otherNames)},${escapeCsv(row.reg_account_number)},${escapeCsv(row.holdings || 0)},${escapeCsv(row.holdings_after || 0)},${escapeCsv(row.rights_issue || 0)},${escapeCsv(row.action_type || '')},${escapeCsv(row.amount_due || 0)},${escapeCsv(row.amount_payable || 0)},${escapeCsv(row.additional_shares || 0)},${escapeCsv(row.shares_renounced || 0)},${escapeCsv(row.status)},${escapeCsv(row.created_at)}`;
+      }).join('\n');
       
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename=rights_submissions.csv');
