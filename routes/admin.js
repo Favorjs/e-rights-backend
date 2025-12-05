@@ -559,7 +559,33 @@ router.get('/export-rights', async (req, res) => {
     const result = await pool.query(query, queryParams);
     
    if (format === 'csv') {
-      const csvHeader = 'Shareholder\'s Bank Verification Number (BVN),Shareholder\'s Clearing House Number (CHN),Phone Number,Email Address,Alloted Rights,Number of Shares Accepted,Additional Shares Applied for,Total Number of Shares Accepted and Paid For,Value of Ordinary Shares applied for (N),Payment Method (Cash, Cheque or Electronic Transfer),Shareholder Name (Surname),Shareholder Name (Other Names),REG ACCOUNT,Holdings,Holdings After,Rights Issue,Action Type,Amount Due,Amount Payable,Additional Shares,Shares Renounced,Status,Created At\n';
+      // Define headers in order matching the data columns
+      const csvHeaders = [
+        'Shareholder\'s Bank Verification Number (BVN)',
+        'Shareholder\'s Clearing House Number (CHN)',
+        'Phone Number',
+        'Email Address',
+        'Alloted Rights',
+        'Number of Shares Accepted',
+        'Additional Shares Applied for',
+        'Total Number of Shares Accepted and Paid For',
+        'Value of Ordinary Shares applied for (N)',
+        'Payment Method (Cash, Cheque or Electronic Transfer)',
+        'Shareholder Name (Surname)',
+        'Shareholder Name (Other Names)',
+        'REG ACCOUNT',
+        'Holdings',
+        'Holdings After',
+        'Action Type',
+        'Amount Due',
+        'Amount Payable',
+        'Shares Renounced',
+        'Status',
+        'Created At'
+      ];
+      
+      const csvHeader = csvHeaders.join(',') + '\n';
+      
       const csvData = result.rows.map(row => {
         // Split name into surname and other names (assuming surname is last word)
         const nameParts = (row.name || '').trim().split(' ');
@@ -569,16 +595,40 @@ router.get('/export-rights', async (req, res) => {
         // Calculate total shares accepted and paid for
         const totalShares = (parseFloat(row.holdings || 0) + parseFloat(row.shares_accepted || 0) + parseFloat(row.additional_shares || 0) - parseFloat(row.shares_renounced || 0));
         
-        // Escape quotes in CSV values
+        // Escape quotes in CSV values - always quote for consistency
         const escapeCsv = (value) => {
-          if (value === null || value === undefined) return '';
+          if (value === null || value === undefined) return '""';
           const str = String(value);
-          return str.includes(',') || str.includes('"') || str.includes('\n') 
-            ? `"${str.replace(/"/g, '""')}"` 
-            : str;
+          // Always wrap in quotes and escape internal quotes
+          return `"${str.replace(/"/g, '""')}"`;
         };
         
-        return `${escapeCsv(row.bvn)},${escapeCsv(row.chn)},${escapeCsv(row.phone_number)},${escapeCsv(row.email)},${escapeCsv(row.rights_issue || 0)},${escapeCsv(row.shares_accepted || 0)},${escapeCsv(row.additional_shares || 0)},${escapeCsv(totalShares)},${escapeCsv(row.additional_amount || 0)},${escapeCsv(row.payment_method || 'Cash')},${escapeCsv(surname)},${escapeCsv(otherNames)},${escapeCsv(row.reg_account_number)},${escapeCsv(row.holdings || 0)},${escapeCsv(row.holdings_after || 0)},${escapeCsv(row.rights_issue || 0)},${escapeCsv(row.action_type || '')},${escapeCsv(row.amount_due || 0)},${escapeCsv(row.amount_payable || 0)},${escapeCsv(row.additional_shares || 0)},${escapeCsv(row.shares_renounced || 0)},${escapeCsv(row.status)},${escapeCsv(row.created_at)}`;
+        // Build data row in exact order matching headers
+        const dataRow = [
+          row.bvn || '',
+          row.chn || '',
+          row.phone_number || '',
+          row.email || '',
+          row.rights_issue || 0,
+          row.shares_accepted || 0,
+          row.additional_shares || 0,
+          totalShares,
+          row.additional_amount || 0,
+          row.payment_method || 'Cash',
+          surname,
+          otherNames,
+          row.reg_account_number || '',
+          row.holdings || 0,
+          row.holdings_after || 0,
+          row.action_type || '',
+          row.amount_due || 0,
+          row.amount_payable || 0,
+          row.shares_renounced || 0,
+          row.status || '',
+          row.created_at || ''
+        ];
+        
+        return dataRow.map(escapeCsv).join(',');
       }).join('\n');
       
       res.setHeader('Content-Type', 'text/csv');
