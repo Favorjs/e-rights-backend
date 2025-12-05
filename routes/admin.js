@@ -584,7 +584,16 @@ router.get('/export-rights', async (req, res) => {
         'Created At'
       ];
       
-      const csvHeader = csvHeaders.join(',') + '\n';
+      // Quote headers that contain commas or special characters
+      const escapeHeader = (header) => {
+        // Quote headers that contain commas, quotes, or parentheses
+        if (header.includes(',') || header.includes('"') || header.includes('(')) {
+          return `"${header.replace(/"/g, '""')}"`;
+        }
+        return header;
+      };
+      
+      const csvHeader = csvHeaders.map(escapeHeader).join(',') + '\n';
       
       const csvData = result.rows.map(row => {
         // Split name into surname and other names (assuming surname is last word)
