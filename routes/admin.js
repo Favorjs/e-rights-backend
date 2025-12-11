@@ -315,7 +315,7 @@ router.get('/export', async (req, res) => {
     const result = await pool.query(query);
     
     if (format === 'csv') {
-      const csvHeader = 'Reg Account Number,Name,Holdings,Rights Issue,Holdings After,Acceptance Type,Shares Accepted,Shares Renounced,Additional Shares,Amount Payable,Payment Account,Contact Name,Email,Status,Created At\n';
+      const csvHeader = 'Registrars Account Number,Surname,Other Names,CHN,BVN,Phone Number,Email,Holdings,Rights Issue,Additional Shares,Holdings After,Amount Payable,Total Shares Accepted & Paid For,Shares Renounced\n';
       const csvData = result.rows.map(row => 
         `"${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},${row.holdings_after},"${row.acceptance_type}",${row.shares_accepted || ''},${row.shares_renounced || ''},${row.additional_shares_applied || ''},${row.amount_payable || ''},"${row.payment_account_number || ''}","${row.contact_name}","${row.email}","${row.status}","${row.created_at}"`
       ).join('\n');
@@ -561,39 +561,24 @@ router.get('/export-rights', async (req, res) => {
    if (format === 'csv') {
       // Define headers in order matching the data columns
       const csvHeaders = [
-        'Shareholder\'s Bank Verification Number (BVN)',
-        'Shareholder\'s Clearing House Number (CHN)',
+        'Registrars Account Number',
+        'Surname',
+        'Other Names',
+        'CHN',
+        'BVN',
         'Phone Number',
-        'Email Address',
-        'Alloted Rights',
-        'Number of Shares Accepted',
-        'Additional Shares Applied for',
-        'Total Number of Shares Accepted and Paid For',
-        'Value of Ordinary Shares applied for (N)',
-        'Payment Method (Cash, Cheque or Electronic Transfer)',
-        'Shareholder Name (Surname)',
-        'Shareholder Name (Other Names)',
-        'REG ACCOUNT',
+        'Email',
         'Holdings',
+        'Rights Issue',
+        'Additional Shares',
+
         'Holdings After',
-        'Action Type',
-        'Amount Due',
         'Amount Payable',
+      
         'Shares Renounced',
-        'Status',
-        'Created At'
       ];
       
-      // Quote headers that contain commas or special characters
-      const escapeHeader = (header) => {
-        // Quote headers that contain commas, quotes, or parentheses
-        if (header.includes(',') || header.includes('"') || header.includes('(')) {
-          return `"${header.replace(/"/g, '""')}"`;
-        }
-        return header;
-      };
-      
-      const csvHeader = csvHeaders.map(escapeHeader).join(',') + '\n';
+      const csvHeader = csvHeaders.join(',') + '\n';
       
       const csvData = result.rows.map(row => {
         // Split name into surname and other names (assuming surname is last word)
@@ -606,35 +591,32 @@ router.get('/export-rights', async (req, res) => {
         
         // Escape quotes in CSV values - always quote for consistency
         const escapeCsv = (value) => {
-          if (value === null || value === undefined) return '""';
-          const str = String(value);
-          // Always wrap in quotes and escape internal quotes
+          const str = value === null || value === undefined ? '' : String(value);
           return `"${str.replace(/"/g, '""')}"`;
         };
+
+        // Value of ordinary shares applied for = base rights amount due + any additional amount
+        const valueOfOrdinaryShares = parseFloat(row.amount_due || 0) + parseFloat(row.additional_amount || 0);
         
         // Build data row in exact order matching headers
         const dataRow = [
-          row.bvn || '',
-          row.chn || '',
-          row.phone_number || '',
-          row.email || '',
-          row.rights_issue || 0,
-          row.shares_accepted || 0,
-          row.additional_shares || 0,
-          totalShares,
-          row.additional_amount || 0,
-          row.payment_method || 'Cash',
+          row.reg_account_number || '',
           surname,
           otherNames,
-          row.reg_account_number || '',
+          row.chn || '',
+          row.bvn || '',          
+          row.phone_number || '',
+          row.email || '',
           row.holdings || 0,
+          row.rights_issue || 0,
+          row.additional_shares || 0,
+
           row.holdings_after || 0,
-          row.action_type || '',
-          row.amount_due || 0,
           row.amount_payable || 0,
+    
+       
           row.shares_renounced || 0,
-          row.status || '',
-          row.created_at || ''
+     
         ];
         
         return dataRow.map(escapeCsv).join(',');
