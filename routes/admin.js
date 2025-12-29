@@ -315,9 +315,9 @@ router.get('/export', async (req, res) => {
     const result = await pool.query(query);
     
     if (format === 'csv') {
-      const csvHeader = 'Registrars Account Number,Surname,Other Names,CHN,BVN,Phone Number,Email,Holdings,Rights Issue,Additional Shares,Holdings After,Amount Payable,Total Shares Accepted & Paid For,Shares Renounced\n';
+      const csvHeader = 'Subscription Date,Registrars Account Number,Surname,Other Names,CHN,BVN,Phone Number,Email,Holdings,Rights Issue,Additional Shares,Holdings After,Amount Payable,Total Shares Accepted & Paid For,Shares Renounced\n';
       const csvData = result.rows.map(row => 
-        `"${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},${row.holdings_after},"${row.acceptance_type}",${row.shares_accepted || ''},${row.shares_renounced || ''},${row.additional_shares_applied || ''},${row.amount_payable || ''},"${row.payment_account_number || ''}","${row.contact_name}","${row.email}","${row.status}","${row.created_at}"`
+        `"${row.created_at ? new Date(row.created_at).toLocaleDateString('en-NG') : ''}","${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},${row.holdings_after},"${row.acceptance_type}",${row.shares_accepted || ''},${row.shares_renounced || ''},${row.additional_shares_applied || ''},${row.amount_payable || ''},"${row.payment_account_number || ''}","${row.contact_name}","${row.email}","${row.status}","${row.created_at}"`
       ).join('\n');
       
       res.setHeader('Content-Type', 'text/csv');
@@ -561,6 +561,7 @@ router.get('/export-rights', async (req, res) => {
    if (format === 'csv') {
       // Define headers in order matching the data columns
       const csvHeaders = [
+        'Subscription Date',
         'Registrars Account Number',
         'Surname',
         'Other Names',
@@ -600,6 +601,7 @@ router.get('/export-rights', async (req, res) => {
         
         // Build data row in exact order matching headers
         const dataRow = [
+          row.created_at ? new Date(row.created_at).toLocaleDateString('en-NG') : '',
           row.reg_account_number || '',
           surname,
           otherNames,
