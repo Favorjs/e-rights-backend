@@ -130,8 +130,9 @@ router.get('/submissions', async (req, res) => {
         f.signature_file,
         f.receipt_file,
         f.created_at,
-        f.updated_at
-        f.amount_payable
+        f.updated_at,
+        f.amount_payable,
+        f.bank_name_edividend
       FROM forms f
       JOIN shareholders s ON f.shareholder_id = s.id
     `;
@@ -306,7 +307,9 @@ router.get('/export', async (req, res) => {
         f.contact_name,
         f.email,
         f.status,
+           f.bank_name_edividend,
         f.created_at
+     
       FROM forms f
       JOIN shareholders s ON f.shareholder_id = s.id
       ORDER BY f.created_at DESC
@@ -420,8 +423,10 @@ router.get('/rights-submissions', async (req, res) => {
         filled_form_path,
         receipt_path,
         status,
+        bank_name_edividend,
         created_at,
         updated_at
+        
       FROM rights_submissions
     `;
     
@@ -536,7 +541,8 @@ router.get('/export-rights', async (req, res) => {
         contact_name,
         holdings_after,
         status,
-        created_at
+        created_at,
+        bank_name_edividend
       FROM rights_submissions
     `;
     
@@ -572,7 +578,7 @@ router.get('/export-rights', async (req, res) => {
         'Holdings',
         'Rights Issue',
         'Additional Shares',
-
+         'Bank Name',
         'Holdings After',
         'Amount Payable',
       
@@ -612,7 +618,7 @@ router.get('/export-rights', async (req, res) => {
           row.holdings || 0,
           row.rights_issue || 0,
           row.additional_shares || 0,
-
+    row.bank_name_edividend ||0,
           row.holdings_after || 0,
           row.amount_payable || 0,
     
