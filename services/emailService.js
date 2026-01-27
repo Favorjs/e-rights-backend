@@ -10,10 +10,10 @@ class MailgunEmailService {
     this.apiKey = process.env.MAILGUN_API_KEY;
     this.domain = process.env.MAILGUN_DOMAIN;
     this.fromEmail = process.env.MAILGUN_FROM_EMAIL;
-    this.fromName = 'The Initiates E-rights';
+    this.fromName = 'Linkage Assurance E-rights';
     this.mailgun = new Mailgun(formData);
     this.client = null;
-    
+
     this.initializeClient();
   }
 
@@ -51,21 +51,21 @@ class MailgunEmailService {
       }
 
       const response = await this.client.messages.create(this.domain, emailData);
-      
+
       console.log(`✅ Email sent via Mailgun API to ${to}`);
-      return { 
-        success: true, 
+      return {
+        success: true,
         messageId: response.id,
-        response: response 
+        response: response
       };
     } catch (error) {
       console.error('❌ Mailgun API email failed:', error.message);
-      
+
       // Log detailed error information for debugging
       if (error.details) {
         console.error('Mailgun error details:', error.details);
       }
-      
+
       throw error;
     }
   }
@@ -73,34 +73,34 @@ class MailgunEmailService {
 
 
 
-// Send rights submission notification to admin
-async sendRightsSubmissionNotification(submissionData) {
-  const subject = 'New Rights Issue Form Submission';
-  const to = process.env.ADMIN_EMAIL;
-  
-  // Determine acceptance status
-  let acceptanceStatus = '';
-  let statusColor = '#374151';
-  
-  if (submissionData.action_type === 'full_acceptance') {
-    if (submissionData.apply_additional) {
-      acceptanceStatus = 'Full Acceptance with Additional Shares';
-      statusColor = '#059669';
-    } else {
-      acceptanceStatus = 'Full Acceptance Only';
-      statusColor = '#10b981';
-    }
-  } else if (submissionData.action_type === 'renunciation_partial') {
-    if (submissionData.shares_renounced > 0) {
-      acceptanceStatus = 'Partial Acceptance with Renunciation';
-      statusColor = '#f59e0b';
-    } else {
-      acceptanceStatus = 'Partial Acceptance';
-      statusColor = '#fbbf24';
-    }
-  }
+  // Send rights submission notification to admin
+  async sendRightsSubmissionNotification(submissionData) {
+    const subject = 'New Rights Issue Form Submission';
+    const to = process.env.ADMIN_EMAIL;
 
-  const html = `
+    // Determine acceptance status
+    let acceptanceStatus = '';
+    let statusColor = '#374151';
+
+    if (submissionData.action_type === 'full_acceptance') {
+      if (submissionData.apply_additional) {
+        acceptanceStatus = 'Full Acceptance with Additional Shares';
+        statusColor = '#059669';
+      } else {
+        acceptanceStatus = 'Full Acceptance Only';
+        statusColor = '#10b981';
+      }
+    } else if (submissionData.action_type === 'renunciation_partial') {
+      if (submissionData.shares_renounced > 0) {
+        acceptanceStatus = 'Partial Acceptance with Renunciation';
+        statusColor = '#f59e0b';
+      } else {
+        acceptanceStatus = 'Partial Acceptance';
+        statusColor = '#fbbf24';
+      }
+    }
+
+    const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #2563eb;">New Rights Issue Form Submission</h2>
       
@@ -202,58 +202,58 @@ async sendRightsSubmissionNotification(submissionData) {
     </div>
   `;
 
-  try {
-    const result = await this.sendEmail(to, subject, html);
-    console.log('✅ Rights submission notification sent to admin');
-    return result;
-  } catch (error) {
-    console.error('❌ Failed to send rights submission notification:', error);
-    return { success: false, error: error.message };
+    try {
+      const result = await this.sendEmail(to, subject, html);
+      console.log('✅ Rights submission notification sent to admin');
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to send rights submission notification:', error);
+      return { success: false, error: error.message };
+    }
   }
-}
 
-// Also update the shareholder confirmation email
-async sendShareholderConfirmation(submissionData) {
-  const subject = 'Your Rights Issue Form Submission Confirmation';
-  const to = submissionData.email;
-  
-  // Determine acceptance status for shareholder
-  let acceptanceDetails = '';
-  if (submissionData.action_type === 'full_acceptance') {
-    if (submissionData.apply_additional) {
-      acceptanceDetails = `Full Acceptance with ${submissionData.additional_shares?.toLocaleString() || '0'} additional shares`;
-    } else {
-      acceptanceDetails = 'Full Acceptance of allotted shares';
+  // Also update the shareholder confirmation email
+  async sendShareholderConfirmation(submissionData) {
+    const subject = 'Your Rights Issue Form Submission Confirmation';
+    const to = submissionData.email;
+
+    // Determine acceptance status for shareholder
+    let acceptanceDetails = '';
+    if (submissionData.action_type === 'full_acceptance') {
+      if (submissionData.apply_additional) {
+        acceptanceDetails = `Full Acceptance with ${submissionData.additional_shares?.toLocaleString() || '0'} additional shares`;
+      } else {
+        acceptanceDetails = 'Full Acceptance of allotted shares';
+      }
+    } else if (submissionData.action_type === 'renunciation_partial') {
+      if (submissionData.shares_renounced > 0) {
+        acceptanceDetails = `Partial Acceptance (${submissionData.shares_accepted?.toLocaleString() || '0'} shares accepted, ${submissionData.shares_renounced?.toLocaleString() || '0'} shares renounced)`;
+      } else {
+        acceptanceDetails = `Partial Acceptance of ${submissionData.shares_accepted?.toLocaleString() || '0'} shares`;
+      }
     }
-  } else if (submissionData.action_type === 'renunciation_partial') {
-    if (submissionData.shares_renounced > 0) {
-      acceptanceDetails = `Partial Acceptance (${submissionData.shares_accepted?.toLocaleString() || '0'} shares accepted, ${submissionData.shares_renounced?.toLocaleString() || '0'} shares renounced)`;
-    } else {
-      acceptanceDetails = `Partial Acceptance of ${submissionData.shares_accepted?.toLocaleString() || '0'} shares`;
+    // Determine acceptance status
+    let acceptanceStatus = '';
+    let statusColor = '#374151';
+
+    if (submissionData.action_type === 'full_acceptance') {
+      if (submissionData.apply_additional) {
+        acceptanceStatus = 'Full Acceptance with Additional Shares';
+        statusColor = '#059669';
+      } else {
+        acceptanceStatus = 'Full Acceptance Only';
+        statusColor = '#10b981';
+      }
+    } else if (submissionData.action_type === 'renunciation_partial') {
+      if (submissionData.shares_renounced > 0) {
+        acceptanceStatus = 'Partial Acceptance with Renunciation';
+        statusColor = '#f59e0b';
+      } else {
+        acceptanceStatus = 'Partial Acceptance';
+        statusColor = '#fbbf24';
+      }
     }
-  }
- // Determine acceptance status
-  let acceptanceStatus = '';
-  let statusColor = '#374151';
-  
-  if (submissionData.action_type === 'full_acceptance') {
-    if (submissionData.apply_additional) {
-      acceptanceStatus = 'Full Acceptance with Additional Shares';
-      statusColor = '#059669';
-    } else {
-      acceptanceStatus = 'Full Acceptance Only';
-      statusColor = '#10b981';
-    }
-  } else if (submissionData.action_type === 'renunciation_partial') {
-    if (submissionData.shares_renounced > 0) {
-      acceptanceStatus = 'Partial Acceptance with Renunciation';
-      statusColor = '#f59e0b';
-    } else {
-      acceptanceStatus = 'Partial Acceptance';
-      statusColor = '#fbbf24';
-    }
-  }
-  const html = `
+    const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #2563eb;">Rights Issue Form Submission Confirmation</h2>
       
@@ -344,23 +344,23 @@ async sendShareholderConfirmation(submissionData) {
     if (submissionData.filled_form_path) {
       try {
         const cloudName = process.env.CLOUDINARY_CLOUD_NAME || 'apelng';
-        
+
         // Generate the direct download URL
         const directDownloadUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${submissionData.filled_form_path}`;
-        
+
         console.log('📥 Attempting to download PDF from:', directDownloadUrl);
-        
+
         const response = await fetch(directDownloadUrl);
-        
+
         if (response.ok) {
           const fileBuffer = await response.arrayBuffer();
-          
+
           // For Mailgun, attachments need to be in a specific format
           attachments.push({
             filename: `Rights_Issue_Form_${submissionData.reg_account_number || submissionData.id}.pdf`,
             data: Buffer.from(fileBuffer),
           });
-          
+
           console.log('✅ PDF attachment added to email');
         } else {
           console.warn('⚠️ Could not download PDF file, status:', response.status);
@@ -388,10 +388,10 @@ async sendShareholderConfirmation(submissionData) {
       // Test by sending a simple verification request
       const domains = await this.client.domains.list();
       console.log('✅ Mailgun API connection established');
-      return { 
-        success: true, 
+      return {
+        success: true,
         message: 'Mailgun API connection established',
-        domain: this.domain 
+        domain: this.domain
       };
     } catch (error) {
       console.error('❌ Mailgun API connection failed:', error.message);
@@ -415,14 +415,14 @@ mailgunEmailService.testConnection();
 module.exports = {
   MailgunEmailService,
   mailgunEmailService,
-  
+
   // Legacy function exports for backward compatibility
-  sendRightsSubmissionNotification: (submissionData) => 
+  sendRightsSubmissionNotification: (submissionData) =>
     mailgunEmailService.sendRightsSubmissionNotification(submissionData),
-  
-  sendFormSubmissionNotification: (submissionData) => 
+
+  sendFormSubmissionNotification: (submissionData) =>
     mailgunEmailService.sendFormSubmissionNotification(submissionData),
-  
-  sendShareholderConfirmation: (submissionData) => 
+
+  sendShareholderConfirmation: (submissionData) =>
     mailgunEmailService.sendShareholderConfirmation(submissionData)
 };

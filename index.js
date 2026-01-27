@@ -25,14 +25,14 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, curl requests, or same-origin)
     if (!origin) return callback(null, true);
-    
+
     const allowedOrigins = [
       'http://localhost:3000', // React dev server
       'http://localhost:5000',
-      'https://tip.apel.com.ng',
-      'https://www.tip.apel.com.ng'
+      'https://linkage.apel.com.ng',
+      'https://www.linkage.apel.com.ng'
     ];
-    
+
     // Check if the origin is in the allowed list or if it's a localhost origin
     if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
       callback(null, true);
@@ -75,8 +75,8 @@ app.use('/api/uploads', uploadRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Rights Web App API is running',
     timestamp: new Date().toISOString()
   });
@@ -90,16 +90,16 @@ app.get('/api/health', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  
+
   // Handle CORS errors specifically
   if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'CORS Error',
       message: 'Origin not allowed'
     });
   }
-  
-  res.status(500).json({ 
+
+  res.status(500).json({
     error: 'Something went wrong!',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
   });
@@ -119,7 +119,7 @@ const PORT = process.env.PORT || 5000;
 //   });
 //   try {
 //     const data = await mg.messages.create("registrars.apel.com.ng", {
-//       from: "The Initiates E-rights <alerts@registrars.apel.com.ng>",
+//       from: "Linkage Assurance E-rights <alerts@registrars.apel.com.ng>",
 //       to: ["<itservices@apelasset.com>"],
 //       subject: "Hello IT",
 //       text: "Congratulations IT, you just sent an email with Mailgun! You are truly awesome!",
@@ -138,7 +138,7 @@ const startServer = async () => {
     // Initialize database
     await initDatabase();
     console.log('Database initialized successfully');
-    
+
     // Start server
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
@@ -146,9 +146,9 @@ const startServer = async () => {
       console.log(`API available at: http://localhost:${PORT}/api`);
       console.log('CORS enabled for origins:', [
         'http://localhost:3000',
-        'http://localhost:5000', 
-        'https://tip.apel.com.ng',
-        'https://www.tip.apel.com.ng'
+        'http://localhost:5000',
+        'https://linkage.apel.com.ng',
+        'https://www.linkage.apel.com.ng'
       ]);
     });
   } catch (error) {

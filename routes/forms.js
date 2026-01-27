@@ -692,9 +692,9 @@ async function handleFileUpload(files, fieldName, folder) {
 // Handle multiple signature uploads
 async function handleSignatureUploads(files) {
   const signaturePaths = [];
-  
+
   if (!files) return signaturePaths;
-  
+
   try {
     // ✅ ONLY ONE LOOP - processes signature_0, signature_1, etc.
     let index = 0;
@@ -707,7 +707,7 @@ async function handleSignatureUploads(files) {
       }
       index++;
     }
-    
+
     // Backward compatibility ONLY if no signatures found with new format
     if (signaturePaths.length === 0) {
       let i = 1;
@@ -721,20 +721,20 @@ async function handleSignatureUploads(files) {
         i++;
       }
     }
-    
+
     console.log(`Total signatures uploaded: ${signaturePaths.length}`);
     return signaturePaths;
-    
+
   } catch (error) {
     console.error('Error uploading signatures:', error);
     if (signaturePaths.length > 0) {
       try {
-        await Promise.all(signaturePaths.map(publicId => 
+        await Promise.all(signaturePaths.map(publicId =>
           FileUpload.deleteFile(publicId).catch(console.error)
         ));
       } catch (cleanupError) {
         console.error('Error cleaning up failed signature uploads:', cleanupError);
-      } 
+      }
     }
     throw new Error('Failed to upload one or more signatures. Please try again with valid image files.');
   }
@@ -1361,7 +1361,7 @@ router.get('/form-template', async (req, res) => {
     const cloudinary = require('../config/cloudinary');
     const downloadUrl = cloudinary.url('rights-forms/TIP_RIGHTS_ISSUE', {
       secure: true,
-      flags: 'attachment:TIP_RIGHTS_ISSUE_FORM.pdf'
+      flags: 'attachment:LINKAGE_RIGHTS_ISSUE_FORM.pdf'
     });
 
     res.json({
@@ -1670,7 +1670,7 @@ router.post('/generate-rights-form', async (req, res) => {
 
     // 5. Send the PDF with proper headers
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="TIP_RIGHTS_${shareholderName.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="LINKAGE_RIGHTS_${shareholderName.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.pdf"`);
     res.setHeader('Content-Length', filledPdfBytes.length);
     res.send(Buffer.from(filledPdfBytes));
 
@@ -1719,7 +1719,7 @@ router.post('/generate-basic-pdf', async (req, res) => {
 
     // Return PDF with proper headers
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="TIP_RIGHTS_${formData.reg_account_number}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="LINKAGE_RIGHTS_${formData.reg_account_number}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
 
