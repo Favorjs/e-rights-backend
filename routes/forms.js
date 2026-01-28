@@ -108,7 +108,7 @@ async function generateRightsPdfBuffer(formData) {
       }
       pdfBytes = await response.arrayBuffer();
     } else {
-      const templatePath = path.join(__dirname, '../rights-form/TIP_RIGHTS_ISSUE.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/LI.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
@@ -425,14 +425,14 @@ async function generateRightsPdfBufferjustDownload(formData) {
     // Load PDF template
     if (false && process.env.NODE_ENV === 'production') {
       const cloudinary = require('../config/cloudinary');
-      const templateUrl = cloudinary.url('rights-submissions/rights-form/TIP_RIGHTS_ISSUE_B', { format: 'pdf' });
+      const templateUrl = cloudinary.url('rights-submissions/rights-form/LINKAGE_RIGHTS_ISSUE', { format: 'pdf' });
       const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
       }
       pdfBytes = await response.arrayBuffer();
     } else {
-      const templatePath = path.join(__dirname, '../rights-form/TIP_RIGHTS_ISSUE_B.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/LINKAGE_RIGHTS_ISSUE.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
@@ -755,13 +755,13 @@ router.post('/preview-rights', async (req, res) => {
     // Validate required fields based on action type
     let requiredFields = [
       'stockbroker', 'chn', 'action_type', 'contact_name', 'next_of_kin',
-      'daytime_phone', 'mobile_phone', 'email', 'account_number', 'bvn'
+      'mobile_phone', 'email', 'account_number', 'bvn'
     ];
 
     if (formData.action_type === 'full_acceptance') {
-      requiredFields = [...requiredFields, 'accept_full'];
+      requiredFields = [...requiredFields, 'accept_full', 'bank_name'];
     } else {
-      requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced'];
+      requiredFields = [...requiredFields, 'shares_accepted', 'amount_payable', 'shares_renounced', 'bank_name'];
     }
 
     const missingFields = requiredFields.filter(field => !formData[field] || formData[field].toString().trim() === '');
@@ -929,7 +929,7 @@ router.post('/submit-rights', async (req, res) => {
     // Validate required fields
     let requiredFields = [
       'shareholder_id', 'stockbroker', 'chn', 'action_type', 'instructions_read',
-      'contact_name', 'next_of_kin', 'daytime_phone', 'mobile_phone', 'email',
+      'contact_name', 'next_of_kin', 'mobile_phone', 'email',
       'account_number', 'bvn',
       'signature_type'
     ];
@@ -955,9 +955,10 @@ router.post('/submit-rights', async (req, res) => {
         if (parseInt(formData.additional_shares) > 0) {
           requiredFields = [
             ...requiredFields,
-
-
+            'bank_name'
           ];
+        } else {
+          requiredFields = [...requiredFields, 'bank_name'];
         }
       }
     } else if (formData.action_type === 'renunciation_partial') {
@@ -969,7 +970,7 @@ router.post('/submit-rights', async (req, res) => {
         // Only require payment details if shares are being accepted (meaning payment is needed)
         requiredFields = [
           ...requiredFields,
-
+          'bank_name'
         ];
       }
       // If shares_accepted is 0, no payment details should be required
@@ -1359,7 +1360,7 @@ router.post('/upload-template', async (req, res) => {
 router.get('/form-template', async (req, res) => {
   try {
     const cloudinary = require('../config/cloudinary');
-    const downloadUrl = cloudinary.url('rights-forms/TIP_RIGHTS_ISSUE', {
+    const downloadUrl = cloudinary.url('rights-forms/LINKAGE_RIGHTS_ISSUE', {
       secure: true,
       flags: 'attachment:LINKAGE_RIGHTS_ISSUE_FORM.pdf'
     });
