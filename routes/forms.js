@@ -108,7 +108,7 @@ async function generateRightsPdfBuffer(formData) {
       }
       pdfBytes = await response.arrayBuffer();
     } else {
-      const templatePath = path.join(__dirname, '../rights-form/LI.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/LINKAGE_RIGHTS_ISSUE.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
