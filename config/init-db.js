@@ -156,21 +156,21 @@ const initDatabase = async () => {
 
 
     // Create admin users table (unchanged)
-    // await pool.query(`
-    //   CREATE TABLE admin_users (
-    //     id SERIAL PRIMARY KEY,
-    //     email VARCHAR(255) UNIQUE NOT NULL,
-    //     password VARCHAR(255) NOT NULL,
-    //     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    //   )
-    // `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    // // Insert sample admin user 
-    // await pool.query(`
-    //   INSERT INTO admin_users (password, email)
-    //   VALUES ($1, $2)
-    //   ON CONFLICT (email) DO NOTHING
-    // `, ['$2a$10$rQZ8K9mX2nL1vP3qR5sT7u', 'fadebowale@apelasset.com']);
+    // Insert sample admin user 
+    await pool.query(`
+      INSERT INTO admin_users (password, email)
+      VALUES ($1, $2)
+      ON CONFLICT (email) DO NOTHING
+    `, ['$2a$10$rQZ8K9mX2nL1vP3qR5sT7u', 'fadebowale@apelasset.com']);
 
     console.log('Database initialized successfully');
   } catch (error) {
