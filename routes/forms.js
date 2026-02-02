@@ -794,7 +794,7 @@ router.post('/preview-rights', async (req, res) => {
 });
 
 
-// Submit rights issue form with comprehensive validation
+// Submit Rights Issue form with comprehensive validation
 router.post('/submit-rights', async (req, res) => {
   try {
 
@@ -850,9 +850,25 @@ router.post('/submit-rights', async (req, res) => {
       return { valid: true };
     };
 
+    const validateReceiptFile = (file, fieldName) => {
+      if (!file) return { valid: false, error: `${fieldName} is required` };
+      const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+      const allowedExtensions = ['.jpg', '.jpeg', '.png', '.pdf'];
+      if (!allowedMimeTypes.includes(file.mimetype)) {
+        return { valid: false, error: `${fieldName} must be a JPG, PNG, or PDF file` };
+      }
+      const fileName = file.name.toLowerCase();
+      const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+      if (!hasValidExtension) {
+        return { valid: false, error: `${fieldName} must have a valid extension (.jpg, .png, .pdf)` };
+      }
+      if (file.size > 10 * 1024 * 1024) return { valid: false, error: `${fieldName} must be less than 10MB` };
+      return { valid: true };
+    };
+
     // Validate receipt
     if (files && files.receipt) {
-      const validation = validateImageFile(files.receipt, 'Receipt');
+      const validation = validateReceiptFile(files.receipt, 'Receipt');
       if (!validation.valid) {
         return res.status(400).json({
           error: 'Invalid file',
@@ -996,7 +1012,7 @@ router.post('/submit-rights', async (req, res) => {
     if (existingForm.rows.length > 0) {
       return res.status(400).json({
         error: 'Form already submitted for this shareholder',
-        message: 'A rights issue form has already been submitted for this shareholder'
+        message: 'A Rights Issue form has already been submitted for this shareholder'
       });
     }
     let filledFormPublicId;
@@ -1174,7 +1190,7 @@ router.post('/submit-rights', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Rights issue form submitted successfully',
+      message: 'Rights Issue form submitted successfully',
       data: submissionData
     });
   } catch (error) {
@@ -1623,7 +1639,7 @@ router.post('/generate-rights-form', async (req, res) => {
     const { shareholderName, holdings, rightsIssue, amountDue } = req.body;
 
     // 1. Load the PDF template with form fields
-    const templatePath = path.join(__dirname, '../uploads/forms/TIP RIGHTS ISSUE.pdf');
+    const templatePath = path.join(__dirname, '../uploads/forms/TIP Rights Issue.pdf');
     const pdfBytes = await fs.readFile(templatePath);
 
     // 2. Load PDF document
