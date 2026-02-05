@@ -47,7 +47,8 @@ class FileUpload {
     const ext = fileName.split('.').pop().toLowerCase();
     const imageFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
     const documentFormats = ['pdf', 'doc', 'docx'];
-    
+
+    if (ext === 'jpeg') return 'jpg'; // Normalize jpeg to jpg
     if (imageFormats.includes(ext)) return ext;
     if (documentFormats.includes(ext)) return ext;
     return 'auto'; // Let Cloudinary detect
@@ -69,7 +70,7 @@ class FileUpload {
       secure: true,
       flags: fileName ? `attachment:${fileName}` : 'attachment'
     };
-    
+
     return cloudinary.url(publicId, options);
   }
 

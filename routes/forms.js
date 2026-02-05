@@ -88,7 +88,7 @@ async function generateRightsPdfBuffer(formData) {
         height: 40, // Standard signature height
       });
 
-      console.log(`✅ Signature embedded on page ${pageIndex + 1} at (${x}, ${y})`);
+      console.log(`Signature embedded on page ${pageIndex + 1} at (${x}, ${y})`);
       return true;
 
     } catch (error) {
@@ -380,7 +380,7 @@ async function generateRightsPdfBuffer(formData) {
           const success = await embedSignatureImage(signaturePath, 1, position);
 
           if (success) {
-            console.log(`✅ Successfully embedded signature ${i + 1}`);
+            console.log(`Successfully embedded signature ${i + 1}`);
           } else {
             console.warn(`❌ Failed to embed signature ${i + 1}`);
           }
@@ -684,6 +684,10 @@ async function handleFileUpload(files, fieldName, folder) {
     return result.public_id;
   } catch (error) {
     console.error(`Error uploading ${fieldName} to Cloudinary:`, error);
+    // Propagate the original error if it has specific properties for retry logic
+    if (error.http_code || error.name === 'TimeoutError' || error.message.includes('timeout')) {
+      throw error;
+    }
     throw new Error(`Failed to upload ${fieldName}. Please try again with a valid file.`);
   }
 }
@@ -696,47 +700,51 @@ async function handleSignatureUploads(files) {
   if (!files) return signaturePaths;
 
   try {
-    // ✅ ONLY ONE LOOP - processes signature_0, signature_1, etc.
+    const uploadPromises = [];
+
+    // Identify all signatures (new format and legacy)
     let index = 0;
     while (files[`signature_${index}`]) {
-      console.log(`Processing signature_${index}...`);
-      const signatureId = await handleFileUpload(files, `signature_${index}`, 'signatures');
-      if (signatureId) {
-        signaturePaths.push(signatureId);
-        console.log(`✅ Uploaded signature_${index}: ${signatureId}`);
-      }
+      const fieldName = `signature_${index}`;
+      uploadPromises.push(
+        uploadWithRetry(async () => {
+          return await handleFileUpload(files, fieldName, 'signatures');
+        }, 3)
+      );
       index++;
     }
 
-    // Backward compatibility ONLY if no signatures found with new format
-    if (signaturePaths.length === 0) {
+    // Legacy format if no new format signatures found
+    if (uploadPromises.length === 0) {
       let i = 1;
       while (files[`signature${i}`]) {
-        console.log(`Processing signature${i} (legacy)...`);
-        const signatureId = await handleFileUpload(files, `signature${i}`, 'signatures');
-        if (signatureId) {
-          signaturePaths.push(signatureId);
-          console.log(`✅ Uploaded signature${i}: ${signatureId}`);
-        }
+        const fieldName = `signature${i}`;
+        uploadPromises.push(
+          uploadWithRetry(async () => {
+            return await handleFileUpload(files, fieldName, 'signatures');
+          }, 3)
+        );
         i++;
       }
     }
 
-    console.log(`Total signatures uploaded: ${signaturePaths.length}`);
-    return signaturePaths;
+    if (uploadPromises.length === 0) return [];
+
+    console.log(`Queueing ${uploadPromises.length} signatures for parallel upload...`);
+    const results = await Promise.all(uploadPromises);
+
+    const validResults = results.filter(id => id !== null);
+    console.log(`Successfully uploaded ${validResults.length} signatures in parallel.`);
+
+    return validResults;
 
   } catch (error) {
     console.error('Error uploading signatures:', error);
-    if (signaturePaths.length > 0) {
-      try {
-        await Promise.all(signaturePaths.map(publicId =>
-          FileUpload.deleteFile(publicId).catch(console.error)
-        ));
-      } catch (cleanupError) {
-        console.error('Error cleaning up failed signature uploads:', cleanupError);
-      }
+    // Propagate the specific error message if it's a TimeoutError or other specific Cloudinary error
+    if (error.http_code === 499 || error.name === 'TimeoutError') {
+      throw new Error('Signature upload timed out. Please check your internet connection and try again.');
     }
-    throw new Error('Failed to upload one or more signatures. Please try again with valid image files.');
+    throw new Error(error.message || 'Failed to upload one or more signatures. Please try again with valid image files.');
   }
 }
 
@@ -906,7 +914,7 @@ router.post('/submit-rights', async (req, res) => {
     formData = cleanedFormData;
 
     // Calculate amount payable based on shares accepted and price per share
-    const pricePerShare = 7;
+    const pricePerShare = 1.32;
 
     // Helper function to safely parse numbers
     const safeNumber = (value) => {
@@ -916,17 +924,19 @@ router.post('/submit-rights', async (req, res) => {
 
     // Calculate based on action type
     if (formData.action_type === 'full_acceptance') {
-      const rightsAmount = safeNumber(formData.rights_issue) * pricePerShare;
+      // Trust the cleaned amount_due and additional_amount if they exist, 
+      // otherwise recalculate based on shares
+      const amountDue = safeNumber(formData.amount_due) || (safeNumber(formData.rights_issue) * pricePerShare);
 
       let additionalAmount = 0;
       let additionalShares = 0;
 
-      if (formData.apply_additional) {
+      if (formData.apply_additional === 'true' || formData.apply_additional === true) {
         additionalShares = safeNumber(formData.additional_shares);
-        additionalAmount = additionalShares * pricePerShare;
+        additionalAmount = safeNumber(formData.additional_amount) || (additionalShares * pricePerShare);
       }
 
-      formData.amount_payable = (rightsAmount + additionalAmount).toFixed(2);
+      formData.amount_payable = (amountDue + additionalAmount).toFixed(2);
       formData.shares_accepted = safeNumber(formData.rights_issue) + additionalShares;
       formData.shares_renounced = 0;
 
@@ -1016,26 +1026,49 @@ router.post('/submit-rights', async (req, res) => {
       });
     }
     let filledFormPublicId;
-    // Upload files to Cloudinary
-    // Upload files to Cloudinary with better error handling
-    // Upload files to Cloudinary
+    // Upload files to Cloudinary in parallel
     let receiptPublicId = null;
-    if (files && files.receipt) {
-      receiptPublicId = await handleReceiptUpload(files);
-    } else if (formData.action_type !== 'renounce') {
-      return res.status(400).json({
-        error: 'Receipt required',
-        message: 'Payment receipt is required to submit the form'
-      });
-    }
+    let signaturePublicIds = [];
+    const paymentVerifiedOnline = formData.payment_verified === 'true' || formData.payment_verified === true;
 
+    console.log('Starting parallel file uploads...');
+    try {
+      // Create promises for both receipt and signatures
+      const uploadTasks = [
+        handleSignatureUploads(files)
+      ];
 
-    // Upload signatures to Cloudinary
-    const signaturePublicIds = await handleSignatureUploads(files);
-    if (signaturePublicIds.length === 0) {
-      return res.status(400).json({
-        error: 'Signature required',
-        message: 'At least one signature is required to submit the form'
+      if (files && files.receipt) {
+        uploadTasks.push(handleReceiptUpload(files));
+      }
+
+      // Execute all uploads simultaneously
+      const results = await Promise.all(uploadTasks);
+
+      signaturePublicIds = results[0];
+      if (uploadTasks.length > 1) {
+        receiptPublicId = results[1];
+      }
+
+      // Validation
+      if (signaturePublicIds.length === 0) {
+        return res.status(400).json({
+          error: 'Signature required',
+          message: 'At least one signature is required to submit the form'
+        });
+      }
+
+      if (!receiptPublicId && formData.action_type !== 'renounce' && !paymentVerifiedOnline) {
+        return res.status(400).json({
+          error: 'Receipt required',
+          message: 'Payment receipt is required to submit the form'
+        });
+      }
+    } catch (uploadError) {
+      console.error('Parallel upload failed:', uploadError);
+      return res.status(uploadError.http_code === 499 ? 504 : 400).json({
+        error: 'Upload Failed',
+        message: uploadError.message
       });
     }
 
@@ -1058,7 +1091,7 @@ router.post('/submit-rights', async (req, res) => {
         'rights-submissions/filled-forms'
       );
       filledFormPublicId = cloudinaryResult.public_id; // Extract just the public_id
-      console.log(`✅ PDF uploaded: ${filledFormPublicId}`);
+      console.log(`PDF uploaded: ${filledFormPublicId}`);
     } catch (pdfError) {
       console.error('Error generating or uploading PDF:', pdfError);
       return res.status(500).json({
@@ -1161,6 +1194,35 @@ router.post('/submit-rights', async (req, res) => {
 
     const submissionData = result.rows[0];
 
+    // If there's a payment reference from online payment, update payment status
+    if (formData.payment_ref) {
+      try {
+        // Check the payment status in dynamic_nuban_accounts
+        const paymentResult = await pool.query(
+          'SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1',
+          [formData.payment_ref]
+        );
+
+        if (paymentResult.rows.length > 0) {
+          const paymentStatus = paymentResult.rows[0].status === 'VERIFIED' ? 'successful' :
+            paymentResult.rows[0].status === 'FAILED' ? 'failed' : 'pending';
+
+          await pool.query(
+            `UPDATE rights_submissions 
+             SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4 
+             WHERE id = $5`,
+            [paymentStatus, formData.payment_ref, new Date(), new Date(), submissionData.id]
+          );
+          console.log(`Updated payment_status to ${paymentStatus} for submission ${submissionData.id}`);
+          submissionData.payment_status = paymentStatus;
+          submissionData.payment_ref = formData.payment_ref;
+        }
+      } catch (paymentError) {
+        console.error('Error updating payment status:', paymentError);
+        // Don't fail the submission if payment status update fails
+      }
+    }
+
     // Generate Cloudinary URLs for email attachments
     const cloudinary = require('../config/cloudinary');
     const filledFormUrl = cloudinary.url(filledFormPublicId, {
@@ -1168,25 +1230,29 @@ router.post('/submit-rights', async (req, res) => {
       flags: 'attachment:filled_rights_form.pdf'
     });
 
-    // Send email notifications with Cloudinary URLs
-    try {
-      // Send notification to admin
-      await sendRightsSubmissionNotification({
-        ...submissionData,
-        filled_form_url: filledFormUrl
-      });
+    // Send email notifications in the background
+    // We don't await these so the user gets the response immediately
+    setImmediate(async () => {
+      try {
+        console.log('Sending background email notifications...');
+        // Send notification to admin
+        await sendRightsSubmissionNotification({
+          ...submissionData,
+          filled_form_url: filledFormUrl
+        });
 
-      // Send confirmation to shareholder with filled form
-      await sendShareholderConfirmation({
-        ...submissionData,
-        email: formData.email,
-        name: formData.name || formData.contact_name,
-        filled_form_url: filledFormUrl
-      });
-    } catch (emailError) {
-      console.error('Failed to send email notifications:', emailError);
-      // Don't fail the request if email fails
-    }
+        // Send confirmation to shareholder with filled form
+        await sendShareholderConfirmation({
+          ...submissionData,
+          email: formData.email,
+          name: formData.name || formData.contact_name,
+          filled_form_url: filledFormUrl
+        });
+        console.log('Background emails sent successfully');
+      } catch (emailError) {
+        console.error('Failed to send background email notifications:', emailError);
+      }
+    });
 
     res.status(201).json({
       success: true,

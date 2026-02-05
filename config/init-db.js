@@ -154,6 +154,86 @@ const initDatabase = async () => {
       )
     `);
 
+    // Create ledgers table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ledgers (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Insert default ledger if it doesn't exist
+    await pool.query(`
+      INSERT INTO ledgers (id, title)
+      VALUES (1, 'Main Ledger')
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    // Create wallets table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallets (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER, -- Can be NULL for public users
+        shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE,
+        balance NUMERIC(15,2) DEFAULT 0.00,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create wallet_actions table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_actions (
+        id SERIAL PRIMARY KEY,
+        uuid UUID DEFAULT gen_random_uuid(),
+        wallet_id INTEGER REFERENCES wallets(id) ON DELETE CASCADE,
+        ledger_id INTEGER REFERENCES ledgers(id),
+        delta NUMERIC(15,2) NOT NULL,
+        balance_after_delta NUMERIC(15,2),
+        approving_officer_id INTEGER,
+        transaction_type VARCHAR(20) CHECK (transaction_type IN ('CREATE', 'CREDIT', 'DEBIT')),
+        transaction_ref TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        summary TEXT,
+        receipt_path TEXT
+      )
+    `);
+
+    // Create dynamic_nuban_accounts table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS dynamic_nuban_accounts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE,
+        transaction_ref TEXT UNIQUE NOT NULL,
+        status VARCHAR(20) DEFAULT 'INITIALIZED' CHECK (status IN ('VERIFIED', 'PENDING', 'INITIALIZED', 'FAILED')),
+        account_number TEXT,
+        banking_partner TEXT,
+        amount TEXT,
+        email TEXT,
+        shareholder_name TEXT,
+        response TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Add email column if it doesn't exist (for existing databases)
+    await pool.query(`
+      ALTER TABLE dynamic_nuban_accounts 
+      ADD COLUMN IF NOT EXISTS email TEXT,
+      ADD COLUMN IF NOT EXISTS shareholder_name TEXT
+    `).catch(() => { });
+
+    // Add payment_status column to rights_submissions if it doesn't exist
+    await pool.query(`
+      ALTER TABLE rights_submissions 
+      ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'successful', 'failed')),
+      ADD COLUMN IF NOT EXISTS payment_ref TEXT,
+      ADD COLUMN IF NOT EXISTS payment_date TIMESTAMP
+    `).catch(() => { });
+
 
     // Create admin users table (unchanged)
     await pool.query(`

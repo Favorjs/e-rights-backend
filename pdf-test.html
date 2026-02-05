@@ -1,21 +1,62 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>PDF Form Filling Test</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: inline-block; width: 200px; font-weight: bold; }
-        input, select { width: 300px; padding: 8px; margin: 5px 0; }
-        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .section { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .debug { background: #fff3cd; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: inline-block;
+            width: 200px;
+            font-weight: bold;
+        }
+
+        input,
+        select {
+            width: 300px;
+            padding: 8px;
+            margin: 5px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .section {
+            background: #f5f5f5;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .debug {
+            background: #fff3cd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
     </style>
 </head>
+
 <body>
     <h1>PDF Form Filling Test</h1>
-    
+
     <form id="pdfTestForm" enctype="multipart/form-data">
         <div class="section">
             <h3>Basic Shareholder Information</h3>
@@ -136,7 +177,7 @@
         async function testPreview() {
             const formData = new FormData(document.getElementById('pdfTestForm'));
             const data = Object.fromEntries(formData.entries());
-            
+
             // Convert numeric fields
             data.holdings = parseInt(data.holdings);
             data.rights_issue = parseInt(data.rights_issue);
@@ -145,7 +186,7 @@
 
             try {
                 showResult('Generating PDF preview...');
-                
+
                 const response = await fetch('/forms/preview-rights', {
                     method: 'POST',
                     headers: {
@@ -157,7 +198,7 @@
                 if (response.ok) {
                     const pdfBlob = await response.blob();
                     const pdfUrl = URL.createObjectURL(pdfBlob);
-                    
+
                     document.getElementById('pdfViewer').innerHTML = `
                         <h3>Generated PDF Preview:</h3>
                         <embed src="${pdfUrl}" width="100%" height="600px" type="application/pdf">
@@ -166,8 +207,8 @@
                             Download PDF
                         </a>
                     `;
-                    
-                    showResult('✅ PDF generated successfully! Check the preview above.');
+
+                    showResult('PDF generated successfully! Check the preview above.');
                 } else {
                     const error = await response.json();
                     showResult(`❌ Error: ${error.message}`, true);
@@ -180,14 +221,14 @@
         async function testFieldMapping() {
             try {
                 showResult('Testing PDF field mapping...');
-                
+
                 const response = await fetch('/forms/test-pdf-fields');
                 const result = await response.json();
-                
+
                 if (result.success) {
                     let message = `<strong>Found ${result.totalFields} fields in PDF:</strong><br><br>`;
                     result.fields.forEach(field => {
-                        message += `• "${field.name}" (${field.type}) ${field.isText ? '✅ Text' : '❌ Not Text'}<br>`;
+                        message += `• "${field.name}" (${field.type}) ${field.isText ? 'Text' : '❌ Not Text'}<br>`;
                     });
                     showResult(message);
                 } else {
@@ -201,7 +242,7 @@
         async function testSubmit() {
             const formData = new FormData(document.getElementById('pdfTestForm'));
             const data = Object.fromEntries(formData.entries());
-            
+
             // Add required fields for submission
             data.shareholder_id = 9999; // Test ID
             data.instructions_read = true;
@@ -209,7 +250,7 @@
 
             try {
                 showResult('Testing form submission...');
-                
+
                 const response = await fetch('/forms/submit-rights', {
                     method: 'POST',
                     headers: {
@@ -219,9 +260,9 @@
                 });
 
                 const result = await response.json();
-                
+
                 if (response.ok) {
-                    showResult(`✅ Form submitted successfully!<br>Message: ${result.message}`);
+                    showResult(`Form submitted successfully!<br>Message: ${result.message}`);
                 } else {
                     showResult(`❌ Submission failed: ${result.message}<br>Missing fields: ${result.missingFields?.join(', ')}`, true);
                 }
@@ -231,4 +272,5 @@
         }
     </script>
 </body>
+
 </html>

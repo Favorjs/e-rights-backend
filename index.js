@@ -17,6 +17,7 @@ const initDatabase = require('./config/init-db');
 // Import routes
 const shareholderRoutes = require('./routes/shareholders');
 const formRoutes = require('./routes/forms');
+const walletRoutes = require('./routes/wallet');
 const adminRoutes = require('./routes/admin');
 const uploadRoutes = require('./routes/uploads');
 
@@ -58,7 +59,7 @@ app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   abortOnLimit: true,
   useTempFiles: true,
-  tempFileDir: '/tmp/'
+  tempFileDir: require('os').tmpdir()
 }));
 
 // Serve static files from uploads directory
@@ -70,6 +71,7 @@ app.use(express.static(path.join(__dirname, '../client/build')));
 // Routes
 app.use('/api/shareholders', shareholderRoutes);
 app.use('/api/forms', formRoutes);
+app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/uploads', uploadRoutes);
 
