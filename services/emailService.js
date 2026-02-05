@@ -10,7 +10,7 @@ class MailgunEmailService {
     this.apiKey = process.env.MAILGUN_API_KEY;
     this.domain = process.env.MAILGUN_DOMAIN;
     this.fromEmail = process.env.MAILGUN_FROM_EMAIL;
-    this.fromName = 'Linkage Assurance E-rights';
+    this.fromName = 'Linkage Assurance Plc E-rights';
     this.mailgun = new Mailgun(formData);
     this.client = null;
 
@@ -245,7 +245,7 @@ class MailgunEmailService {
 
   // Also update the shareholder confirmation email
   async sendShareholderConfirmation(submissionData) {
-    const subject = 'Submission Confirmation - Linkage Assurance Rights Issue';
+    const subject = 'Submission Confirmation - Linkage Assurance Plc Rights Issue';
     const to = submissionData.email;
 
     // Determine acceptance status
@@ -366,7 +366,7 @@ class MailgunEmailService {
               <tr>
                 <td style="background-color: #f8fafc; padding: 32px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
                   <p style="color: #94a3b8; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em;">
-                    Linkage Assurance Rights Issue Portal
+                    Linkage Assurance Plc Rights Issue Portal
                   </p>
                   <p style="color: #cbd5e1; font-size: 10px; margin: 0;">
                     &copy; ${new Date().getFullYear()} Linkage Assurance Plc. All rights reserved.
@@ -444,7 +444,7 @@ class MailgunEmailService {
 
   // Send payment success notification
   async sendPaymentSuccessEmail({ email, name, transactionRef, amount, amountPaid, processorFee, paymentDate }) {
-    const subject = 'Payment Receipt - Linkage Assurance Rights Issue';
+    const subject = 'Payment Receipt - Linkage Assurance Plc Rights Issue';
 
     const html = `
     <!DOCTYPE html>
@@ -486,7 +486,7 @@ class MailgunEmailService {
               <tr>
                 <td style="padding: 48px 40px;" class="content">
                   <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 0 0 32px;">
-                    Hi <strong>${name}</strong>, your payment for the Linkage Assurance Rights Issue has been confirmed. Thank you for your subscription.
+                    Hi <strong>${name}</strong>, your payment for the Linkage Assurance Plc Rights Issue has been confirmed. Thank you for your subscription.
                   </p>
                   
                   <!-- Receipt Box -->
@@ -536,7 +536,7 @@ class MailgunEmailService {
               <tr>
                 <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #f1f5f9;">
                   <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">Linkage Assurance Plc</p>
-                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} Linkage Assurance Registrars. All rights reserved.</p>
+                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
               
@@ -560,7 +560,7 @@ class MailgunEmailService {
 
   // Send payment failure notification
   async sendPaymentFailureEmail({ email, name, transactionRef, amount, errorMessage, paymentDate }) {
-    const subject = 'Payment Issue - Linkage Assurance Rights Issue';
+    const subject = 'Payment Issue - Linkage Assurance Plc Rights Issue';
 
     const html = `
     <!DOCTYPE html>
@@ -601,7 +601,7 @@ class MailgunEmailService {
               <tr>
                 <td style="padding: 48px 40px;" class="content">
                   <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 0 0 32px;">
-                    Hi <strong>${name || 'Valued Shareholder'}</strong>, we were unable to verify your payment for the Linkage Assurance Rights Issue. Please see the details below.
+                    Hi <strong>${name || 'Valued Shareholder'}</strong>, we were unable to verify your payment for the Linkage Assurance Plc Rights Issue. Please see the details below.
                   </p>
                   
                   <!-- Error Box -->
@@ -638,7 +638,7 @@ class MailgunEmailService {
                   </div>
 
                   <p style="color: #64748b; font-size: 13px; margin: 32px 0 0; text-align: center;">
-                    Need help? Contact Linkage Assurance Registrars or your Stockbroker.
+                    Need help? Contact Linkage Assurance Plc Registrars or your Stockbroker.
                   </p>
                 </td>
               </tr>
@@ -646,8 +646,8 @@ class MailgunEmailService {
               <!-- Footer -->
               <tr>
                 <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #f1f5f9;">
-                  <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">Linkage Assurance Plc</p>
-                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} Linkage Assurance Registrars. All rights reserved.</p>
+                  <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">Linkage Assurance Plc </p>
+                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
               
