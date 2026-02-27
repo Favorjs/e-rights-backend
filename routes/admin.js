@@ -292,9 +292,10 @@ router.get('/export', async (req, res) => {
     const { format = 'json' } = req.query;
 
     const query = `
-      SELECT 
+      SELECT
         s.reg_account_number,
         s.name,
+        s.address,
         s.holdings,
         s.rights_issue,
         s.holdings_after,
@@ -307,9 +308,8 @@ router.get('/export', async (req, res) => {
         f.contact_name,
         f.email,
         f.status,
-           f.bank_name_edividend,
+        f.bank_name_edividend,
         f.created_at
-     
       FROM forms f
       JOIN shareholders s ON f.shareholder_id = s.id
       ORDER BY f.created_at DESC
@@ -318,9 +318,9 @@ router.get('/export', async (req, res) => {
     const result = await pool.query(query);
 
     if (format === 'csv') {
-      const csvHeader = 'Subscription Date,Registrars Account Number,Surname,Other Names,CHN,BVN,Phone Number,Email,Holdings,Rights Issue,Additional Shares,Holdings After,Amount Payable,Total Shares Accepted & Paid For,Shares Renounced\n';
+      const csvHeader = 'Subscription Date,Registrars Account Number,Name,Address,Holdings,Rights Issue,Holdings After,Acceptance Type,Shares Accepted,Shares Renounced,Additional Shares,Amount Payable,Payment Account,Contact Name,Email,Status,Created At\n';
       const csvData = result.rows.map(row =>
-        `"${row.created_at ? new Date(row.created_at).toLocaleDateString('en-NG') : ''}","${row.reg_account_number}","${row.name}",${row.holdings},${row.rights_issue},${row.holdings_after},"${row.acceptance_type}",${row.shares_accepted || ''},${row.shares_renounced || ''},${row.additional_shares_applied || ''},${row.amount_payable || ''},"${row.payment_account_number || ''}","${row.contact_name}","${row.email}","${row.status}","${row.created_at}"`
+        `"${row.created_at ? new Date(row.created_at).toLocaleDateString('en-NG') : ''}","${row.reg_account_number || ''}","${row.name || ''}","${row.address || ''}",${row.holdings || ''},${row.rights_issue || ''},${row.holdings_after || ''},"${row.acceptance_type || ''}",${row.shares_accepted || ''},${row.shares_renounced || ''},${row.additional_shares_applied || ''},${row.amount_payable || ''},"${row.payment_account_number || ''}","${row.contact_name || ''}","${row.email || ''}","${row.status || ''}","${row.created_at || ''}"`
       ).join('\n');
 
       res.setHeader('Content-Type', 'text/csv');
@@ -512,44 +512,47 @@ router.get('/export-rights', async (req, res) => {
     const { format = 'json', rightsClaiming } = req.query;
 
     let query = `
-      SELECT 
-        chn,
-        reg_account_number,
-        name,
-        bvn,
-        COALESCE(mobile_phone, daytime_phone, '') as phone_number,
-        email,
-        holdings,
-        rights_issue,
-        action_type,
-        shares_accepted,
-        amount_due,
-        amount_payable,
-        additional_shares,
-        additional_amount,
-        apply_additional,
-        shares_renounced,
-        payment_amount,
-        COALESCE(
-          CASE 
-            WHEN additional_payment_cheque_number IS NOT NULL THEN 'Cheque'
-            WHEN partial_payment_cheque_number IS NOT NULL THEN 'Cheque'
-            WHEN payment_amount IS NOT NULL THEN 'Electronic Transfer'
-            ELSE 'Cash'
-          END, 'Cash'
-        ) as payment_method,
-        contact_name,
-        holdings_after,
-        status,
-        created_at,
-        bank_name_edividend
-      FROM rights_submissions
+      SELECT
+        rs.chn,
+        rs.reg_account_number,
+        rs.name,
+        rs.bvn,
+        COALESCE(rs.mobile_phone, rs.daytime_phone, '') as phone_number,
+        rs.email,
+        rs.holdings,
+        rs.rights_issue,
+        rs.action_type,
+        rs.shares_accepted,
+        rs.amount_due,
+        rs.amount_payable,
+        rs.additional_shares,
+        rs.additional_amount,
+        rs.apply_additional,
+        rs.shares_renounced,
+        rs.payment_amount,
+        rs.payment_ref,
+        rs.payment_status,
+        CASE
+          WHEN rs.additional_payment_cheque_number IS NOT NULL THEN 'CHEQUE'
+          WHEN rs.partial_payment_cheque_number IS NOT NULL THEN 'CHEQUE'
+          WHEN rs.payment_ref IS NOT NULL THEN 'TRANSFER'
+          WHEN rs.payment_amount IS NOT NULL THEN 'TRANSFER'
+          ELSE 'TRANSFER'
+        END as payment_method,
+        rs.holdings_after,
+        rs.status,
+        rs.created_at,
+        rs.bank_name_edividend,
+        rs.account_number,
+        COALESCE(stk.name, '') as stockbroker_name,
+        COALESCE(sh.address, '') as shareholder_address
+      FROM rights_submissions rs
+      LEFT JOIN shareholders sh ON rs.shareholder_id = sh.id
+      LEFT JOIN stockbrokers stk ON rs.stockbroker_id = stk.id
     `;
 
     let queryParams = [];
-    let paramIndex = 1;
 
-    // Add rights claiming filter for export
     if (rightsClaiming) {
       if (rightsClaiming === 'full') {
         query += ` WHERE action_type = $1`;
@@ -560,78 +563,117 @@ router.get('/export-rights', async (req, res) => {
       }
     }
 
-    query += ` ORDER BY created_at DESC`;
+    query += ` ORDER BY created_at ASC`;
 
     const result = await pool.query(query, queryParams);
 
     if (format === 'csv') {
-      // Define headers in order matching the data columns
+      // Exact column headers matching the docket Excel format
       const csvHeaders = [
-        'Subscription Date',
-        'Registrars Account Number',
-        'Surname',
-        'Other Names',
-        'CHN',
-        'BVN',
-        'Phone Number',
-        'Email',
-        'Holdings',
-        'Rights Issue',
-        'Additional Shares',
-        'Bank Name',
-        'Holdings After',
-        'Amount Payable',
-
-        'Shares Renounced',
+        'Transaction type',                                    // A
+        'Receiving agent (Name/Broker code)',                  // B
+        'S/No',                                                // C
+        'Account No',                                          // D
+        'BVN',                                                 // E
+        'CHN',                                                 // F
+        'Phone Number',                                        // G
+        'Email Address',                                       // H
+        'Allotted Rights',                                     // I
+        'Accepted Rights',                                     // J
+        'Full Acceptance',                                     // K  =IF(I=J,J,0)
+        'Partial Acceptance',                                  // L  =IF(I>J,J,0)
+        'Renounced Rights',                                    // M  =I-J
+        'Additional Shares Applied for',                       // N
+        'Accepted and Paid For',                               // O  =J+N
+        'Full Name',                                           // P
+        'Value (N)',                                           // Q  =amount_payable
+        'Amount Paid (N)',                                     // R
+        'Verified payment',                                    // S
+        'Payment Method(Cash Cheque or Electronic TRANSFER)',  // T
+        'Surname',                                             // U
+        '(Other Names)',                                       // V
+        'Shareholder Address',                                 // W
+        'Bank Name',                                           // X
+        'Bank Account Number',                                 // Y
+        'Date',                                                // Z
+        'Payment Confirmation',                                // AA
       ];
+
+      const escapeCsv = (value) => {
+        const str = value === null || value === undefined ? '' : String(value);
+        return `"${str.replace(/"/g, '""')}"`;
+      };
+
+      // Format a number as a whole integer with comma thousands separator
+      const fmt = (n) => n === '' || n === null || n === undefined
+        ? ''
+        : Math.round(Number(n)).toLocaleString('en-NG');
 
       const csvHeader = csvHeaders.join(',') + '\n';
 
-      const csvData = result.rows.map(row => {
-        // Split name into surname and other names (assuming surname is last word)
-        const nameParts = (row.name || '').trim().split(' ');
-        const surname = nameParts.length > 0 ? nameParts[nameParts.length - 1] : '';
-        const otherNames = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+      const csvData = result.rows.map((row, index) => {
+        // Name split: first word = Surname, rest = Other Names (matches Excel V/W columns)
+        const nameParts = (row.name || '').trim().split(/\s+/);
+        const surname = nameParts[0] || '';
+        const otherNames = nameParts.slice(1).join(' ');
 
-        // Calculate total shares accepted and paid for
-        const totalShares = (parseFloat(row.holdings || 0) + parseFloat(row.shares_accepted || 0) + parseFloat(row.additional_shares || 0) - parseFloat(row.shares_renounced || 0));
+        // Column calculations matching Excel formulas (kept as raw numbers for arithmetic)
+        const allottedRights   = Math.round(parseFloat(row.rights_issue || 0));      // I
+        const acceptedRights   = Math.round(parseFloat(row.shares_accepted || 0));   // J
+        const additionalShares = Math.round(parseFloat(row.additional_shares || 0)); // N
 
-        // Escape quotes in CSV values - always quote for consistency
-        const escapeCsv = (value) => {
-          const str = value === null || value === undefined ? '' : String(value);
-          return `"${str.replace(/"/g, '""')}"`;
-        };
+        const fullAcceptance    = allottedRights === acceptedRights ? acceptedRights : 0; // K
+        const partialAcceptance = allottedRights > acceptedRights ? acceptedRights : 0;   // L
+        const renouncedRights   = allottedRights - acceptedRights;                        // M
+        const acceptedAndPaidFor = acceptedRights + additionalShares;                     // O
 
-        // Value of ordinary shares applied for = base rights amount due + any additional amount
-        const valueOfOrdinaryShares = parseFloat(row.amount_due || 0) + parseFloat(row.additional_amount || 0);
+        const value      = Math.round(parseFloat(row.amount_payable || 0));  // Q
+        const amountPaid = Math.round(parseFloat(row.payment_amount || 0));  // R
+        const verified   = amountPaid > 0 ? amountPaid : value;              // S
 
-        // Build data row in exact order matching headers
+        const paymentConfirmation = row.status === 'completed' ? 'CONFIRMED'
+          : row.payment_status === 'successful' ? 'CONFIRMED'
+          : 'PENDING';
+
+        const date = row.created_at
+          ? new Date(row.created_at).toLocaleDateString('en-GB').replace(/\//g, '.')
+          : '';
+
         const dataRow = [
-          row.created_at ? new Date(row.created_at).toLocaleDateString('en-NG') : '',
-          row.reg_account_number || '',
-          surname,
-          otherNames,
-          row.chn || '',
-          row.bvn || '',
-          row.phone_number || '',
-          row.email || '',
-          row.holdings || 0,
-          row.rights_issue || 0,
-          row.additional_shares || 0,
-          row.bank_name_edividend || 0,
-          row.holdings_after || 0,
-          row.amount_payable || 0,
-
-
-          row.shares_renounced || 0,
-
+          'SHAREHOLDER RIGHTS ACCEPTANCE',                // A
+          row.stockbroker_name || '',                     // B  actual stockbroker selected
+          index + 1,                                      // C
+          row.reg_account_number || '',                   // D
+          row.bvn || '',                                  // E
+          row.chn || '',                                  // F
+          row.phone_number || '',                         // G
+          row.email || '',                                // H
+          fmt(allottedRights),                            // I
+          fmt(acceptedRights),                            // J
+          fmt(fullAcceptance),                            // K
+          fmt(partialAcceptance),                         // L
+          fmt(renouncedRights),                           // M
+          additionalShares ? fmt(additionalShares) : '',  // N
+          fmt(acceptedAndPaidFor),                        // O
+          row.name || '',                                 // P
+          fmt(value),                                     // Q
+          amountPaid ? fmt(amountPaid) : '',              // R
+          fmt(verified),                                  // S
+          row.payment_method || 'TRANSFER',               // T
+          surname,                                        // U
+          otherNames,                                     // V
+          row.shareholder_address || '',                  // W
+          row.bank_name_edividend || '',                  // X
+          row.account_number || '',                       // Y
+          date,                                           // Z
+          paymentConfirmation,                            // AA
         ];
 
         return dataRow.map(escapeCsv).join(',');
       }).join('\n');
 
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=rights_submissions.csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=rights_submissions_docket.csv');
       res.send(csvHeader + csvData);
     } else {
       res.json({

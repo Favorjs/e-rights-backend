@@ -37,15 +37,16 @@ router.get('/search', async (req, res) => {
 
     // Fetch paginated results IN RANDOM ORDER
     const query = `
-      SELECT 
+      SELECT
         id,
         reg_account_number,
         name,
+        address,
         holdings,
         rights_issue,
         holdings_after,
         amount_due
-      FROM shareholders 
+      FROM shareholders
       WHERE ${whereClause}
       ORDER BY RANDOM()  -- This makes results shuffle each time!
       LIMIT $1 OFFSET $2
@@ -77,16 +78,17 @@ router.get('/:id', async (req, res) => {
     const { id } = req.params;
     
     const query = `
-      SELECT 
+      SELECT
         id,
         reg_account_number,
         name,
+        address,
         holdings,
         rights_issue,
         holdings_after,
         amount_due,
         created_at
-      FROM shareholders 
+      FROM shareholders
       WHERE id = $1
     `;
 
@@ -117,16 +119,17 @@ router.get('/reg/:regNumber', async (req, res) => {
     const { regNumber } = req.params;
     
     const query = `
-      SELECT 
+      SELECT
         id,
         reg_account_number,
         name,
+        address,
         holdings,
         rights_issue,
         holdings_after,
         amount_due,
         created_at
-      FROM shareholders 
+      FROM shareholders
       WHERE reg_account_number = $1
     `;
 
@@ -158,10 +161,11 @@ router.get('/', async (req, res) => {
     const offset = (page - 1) * limit;
     
     let query = `
-      SELECT 
+      SELECT
         id,
         reg_account_number,
         name,
+        address,
         holdings,
         rights_issue,
         holdings_after,

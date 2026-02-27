@@ -243,7 +243,6 @@ router.post('/public/verify', async (req, res) => {
 
     console.log('Querying Vetropay for payment status...');
     //const queryResult = await paymentService.queryDynamic(txRef);
-
     const queryResult = await paymentService.queryDynamic("adQbma04551");
     console.log('Vetropay response:', JSON.stringify(queryResult, null, 2));
 
@@ -400,6 +399,132 @@ router.post('/public/verify', async (req, res) => {
   } catch (error) {
     console.error('Verify public payment error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/public/webhook', async (req, res) => {
+  try {
+    const { txRef, status, amount } = req.body;
+    console.log('Webhook received:', { txRef, status, amount });
+
+    if (!txRef) {
+      return res.status(400).json({ success: false, message: 'Transaction reference is required' });
+    }
+
+    // Direct lookup in our database
+    const existingTransaction = await pool.query(
+      "SELECT * FROM dynamic_nuban_accounts WHERE transaction_ref = $1",
+      [txRef]
+    );
+
+    if (!existingTransaction.rows.length) {
+      console.log('Webhook: Transaction not found in database:', txRef);
+      return res.status(404).json({ success: false, message: "Transaction not found" });
+    }
+
+    const transaction = existingTransaction.rows[0];
+
+    // If already verified, just return success to Vetropay
+    if (transaction.status === 'VERIFIED') {
+      return res.status(200).json({ success: true, message: 'Already processed' });
+    }
+
+    // Verify with Vetropay to be sure (security)
+    const queryResult = await paymentService.queryDynamic(txRef);
+    console.log('Webhook: Vetropay query result:', JSON.stringify(queryResult, null, 2));
+
+    if (queryResult.status === 'success' && queryResult.data?.paymentReceived === true) {
+      console.log('Webhook: Payment verified! Updating systems...');
+
+      const amountPaid = parseFloat(queryResult.data?.amountReceived || transaction.amount);
+      const baseAmount = parseFloat(transaction.amount);
+      const processorFee = Math.max(0, amountPaid - baseAmount);
+
+      // 1. Update transaction status
+      await pool.query(
+        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2 WHERE transaction_ref = $3',
+        ['VERIFIED', JSON.stringify(queryResult), txRef]
+      );
+
+      // 2. Log to wallet_actions
+      await pool.query(
+        `INSERT INTO wallet_actions 
+        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp) 
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+        [1, amountPaid, 'CREDIT', txRef, `Webhook: Rights Issue Payment - Account: ${transaction.account_number}`, new Date()]
+      );
+
+      // 3. Update shareholder wallet
+      if (transaction.shareholder_id) {
+        const walletCheck = await pool.query(
+          'SELECT id, balance FROM wallets WHERE shareholder_id = $1',
+          [transaction.shareholder_id]
+        );
+
+        if (walletCheck.rows.length > 0) {
+          const newBalance = (parseFloat(walletCheck.rows[0].balance) || 0) + amountPaid;
+          await pool.query(
+            'UPDATE wallets SET balance = $1, updated_at = $2 WHERE shareholder_id = $3',
+            [newBalance, new Date(), transaction.shareholder_id]
+          );
+        } else {
+          await pool.query(
+            'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
+            [transaction.shareholder_id, amountPaid, new Date(), new Date()]
+          );
+        }
+      }
+
+      // 4. Update rights_submissions if applicable
+      // Find submission associated with this txRef
+      const submissionCheck = await pool.query(
+        'SELECT id, name, email FROM rights_submissions WHERE payment_ref = $1',
+        [txRef]
+      );
+
+      let shareholderName = transaction.name;
+      let shareholderEmail = transaction.email;
+
+      if (submissionCheck.rows.length > 0) {
+        const submission = submissionCheck.rows[0];
+        await pool.query(
+          `UPDATE rights_submissions 
+           SET payment_status = $1, payment_date = $2, updated_at = $3 
+           WHERE id = $4`,
+          ['successful', new Date(), new Date(), submission.id]
+        );
+        shareholderName = submission.name;
+        shareholderEmail = submission.email;
+        console.log('Webhook: Updated rights_submission status to successful for ID:', submission.id);
+      }
+
+      // 5. Send success email
+      if (shareholderEmail) {
+        try {
+          await mailgunEmailService.sendPaymentSuccessEmail({
+            email: shareholderEmail,
+            name: shareholderName,
+            transactionRef: txRef,
+            amount: baseAmount,
+            amountPaid: amountPaid,
+            processorFee: processorFee,
+            paymentDate: new Date().toLocaleString()
+          });
+          console.log('Webhook: Payment success email sent to:', shareholderEmail);
+        } catch (emailError) {
+          console.error('Webhook: Failed to send payment email:', emailError);
+        }
+      }
+
+      return res.status(200).json({ success: true, message: 'Webhook processed successfully' });
+    } else {
+      console.log('Webhook: Payment not yet confirmed by Vetropay query');
+      return res.status(200).json({ success: true, message: 'Webhook received, but payment not yet confirmed by provider' });
+    }
+
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 

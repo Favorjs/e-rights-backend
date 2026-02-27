@@ -8,13 +8,14 @@ const initDatabase = async () => {
         id SERIAL PRIMARY KEY,
         reg_account_number VARCHAR(50) UNIQUE NOT NULL,
         name VARCHAR(255) NOT NULL,
-        holdings NUMERIC(15,2),
-        rights_issue NUMERIC(15,2),
-        holdings_after NUMERIC(15,2),
+        address TEXT,
+        holdings BIGINT,
+        rights_issue BIGINT,
+        holdings_after BIGINT,
         amount_due NUMERIC(15,2),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      ) 
+      )
     `);
 
     // Create stockbrokers table (new)
@@ -53,9 +54,9 @@ const initDatabase = async () => {
         id SERIAL PRIMARY KEY,
         shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE,
         acceptance_type VARCHAR(50) NOT NULL CHECK (acceptance_type IN ('full', 'partial', 'renunciation')),
-        shares_accepted DECIMAL(15,2),
-        shares_renounced DECIMAL(15,2),
-        additional_shares_applied DECIMAL(15,2),
+        shares_accepted BIGINT,
+        shares_renounced BIGINT,
+        additional_shares_applied BIGINT,
         amount_payable DECIMAL(15,2),
         payment_account_number VARCHAR(50),
         contact_name VARCHAR(255), 
@@ -94,7 +95,7 @@ const initDatabase = async () => {
         -- Full acceptance fields
         accept_full BOOLEAN DEFAULT FALSE,
         apply_additional BOOLEAN DEFAULT FALSE,
-        additional_shares DECIMAL(15,2),
+        additional_shares BIGINT,
         additional_amount DECIMAL(15,2),
         accept_smaller_allotment BOOLEAN DEFAULT FALSE,
         payment_amount DECIMAL(15,2),
@@ -108,9 +109,9 @@ const initDatabase = async () => {
         additional_payment_branch VARCHAR(255),
 
         -- Renunciation/Partial acceptance fields
-        shares_accepted DECIMAL(15,2),
+        shares_accepted BIGINT,
         amount_payable DECIMAL(15,2),
-        shares_renounced DECIMAL(15,2),
+        shares_renounced BIGINT,
         accept_partial BOOLEAN DEFAULT FALSE,
         renounce_rights BOOLEAN DEFAULT FALSE,
         trade_rights BOOLEAN DEFAULT FALSE,
@@ -138,9 +139,9 @@ const initDatabase = async () => {
         -- Prefilled shareholder info
         reg_account_number VARCHAR(50) NOT NULL,
         name VARCHAR(255) NOT NULL,
-        holdings NUMERIC(15,2) NOT NULL,
-        rights_issue NUMERIC(15,2) NOT NULL,
-        holdings_after NUMERIC(15,2) NOT NULL,
+        holdings BIGINT NOT NULL,
+        rights_issue BIGINT NOT NULL,
+        holdings_after BIGINT NOT NULL,
         amount_due NUMERIC(15,2) NOT NULL,
         
         -- File paths
@@ -218,6 +219,30 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add address column if it doesn't exist (for existing databases)
+    await pool.query(`
+      ALTER TABLE shareholders
+      ADD COLUMN IF NOT EXISTS address TEXT
+    `).catch(() => { });
+
+    // Convert share quantity columns from DECIMAL to BIGINT (for existing databases)
+    await pool.query(`
+      ALTER TABLE forms
+        ALTER COLUMN shares_accepted TYPE BIGINT USING shares_accepted::BIGINT,
+        ALTER COLUMN shares_renounced TYPE BIGINT USING shares_renounced::BIGINT,
+        ALTER COLUMN additional_shares_applied TYPE BIGINT USING additional_shares_applied::BIGINT
+    `).catch(() => { });
+
+    await pool.query(`
+      ALTER TABLE rights_submissions
+        ALTER COLUMN additional_shares TYPE BIGINT USING additional_shares::BIGINT,
+        ALTER COLUMN shares_accepted TYPE BIGINT USING shares_accepted::BIGINT,
+        ALTER COLUMN shares_renounced TYPE BIGINT USING shares_renounced::BIGINT,
+        ALTER COLUMN holdings TYPE BIGINT USING holdings::BIGINT,
+        ALTER COLUMN rights_issue TYPE BIGINT USING rights_issue::BIGINT,
+        ALTER COLUMN holdings_after TYPE BIGINT USING holdings_after::BIGINT
+    `).catch(() => { });
 
     // Add email column if it doesn't exist (for existing databases)
     await pool.query(`
