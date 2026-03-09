@@ -669,6 +669,214 @@ class MailgunEmailService {
     }
   }
 
+  // Send overpayment notification (shareholder + admin)
+  async sendOverpaymentEmail({ email, name, transactionRef, amountExpected, amountReceived, excess, paymentDate }) {
+    const subject = 'Overpayment Notice - Linkage Assurance Plc Rights Issue';
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const fmt = (n) => parseFloat(n).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9;">
+        <tr>
+          <td align="center" style="padding:40px 10px;">
+            <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+
+              <!-- Header -->
+              <tr>
+                <td style="background:linear-gradient(135deg,#78350f 0%,#92400e 100%);padding:48px 40px;text-align:center;">
+                  <div style="background-color:#f59e0b;width:64px;height:64px;border-radius:32px;margin:0 auto 24px;display:table;">
+                    <span style="display:table-cell;vertical-align:middle;color:#ffffff;font-size:32px;font-weight:bold;">↑</span>
+                  </div>
+                  <h1 style="color:#ffffff;font-size:24px;margin:0;font-weight:800;">Overpayment Detected</h1>
+                  <p style="color:#fde68a;font-size:13px;margin:8px 0 0;text-transform:uppercase;font-weight:700;letter-spacing:0.1em;">Payment Accepted — Reconciliation Pending</p>
+                </td>
+              </tr>
+
+              <!-- Content -->
+              <tr>
+                <td style="padding:40px;">
+                  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
+                    Dear <strong>${name || 'Valued Shareholder'}</strong>,
+                  </p>
+                  <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 32px;">
+                    We have received your payment for the Linkage Assurance Plc Rights Issue. However, we noticed that the amount sent differs from the required amount. Your payment has been <strong>accepted</strong> and your application will proceed.
+                  </p>
+
+                  <!-- Variance Box -->
+                  <div style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:16px;overflow:hidden;margin-bottom:32px;">
+                    <div style="padding:20px 24px;border-bottom:1px dashed #fde68a;">
+                      <p style="color:#92400e;font-size:11px;font-weight:700;text-transform:uppercase;margin:0 0 4px;">Transaction Reference</p>
+                      <p style="color:#1c1917;font-size:15px;font-weight:700;font-family:monospace;margin:0;">${transactionRef}</p>
+                    </div>
+                    <div style="padding:24px;">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="padding:8px 0;font-size:14px;color:#78350f;">Amount Required</td>
+                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(amountExpected)}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 0;font-size:14px;color:#78350f;">Amount Received</td>
+                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(amountReceived)}</td>
+                        </tr>
+                        <tr style="border-top:2px solid #fde68a;">
+                          <td style="padding:16px 0 0;font-size:15px;color:#92400e;font-weight:700;">Excess Amount</td>
+                          <td style="padding:16px 0 0;font-size:22px;color:#d97706;font-weight:800;text-align:right;">₦${fmt(excess)}</td>
+                        </tr>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Info Box -->
+                  <div style="background-color:#f0fdf4;border-left:4px solid #22c55e;padding:20px;border-radius:4px;margin-bottom:24px;">
+                    <p style="color:#166534;font-size:13px;font-weight:700;margin:0 0 6px;">Your application is proceeding</p>
+                    <p style="color:#16a34a;font-size:13px;margin:0;line-height:1.5;">
+                      The excess amount of <strong>₦${fmt(excess)}</strong> will be reconciled and returned to you after the Rights Issue offer period closes. Our team will contact you with reconciliation details.
+                    </p>
+                  </div>
+
+                  <p style="color:#94a3b8;font-size:12px;margin:0;text-align:center;">Payment Date: ${paymentDate}</p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color:#f8fafc;padding:32px;text-align:center;border-top:1px solid #f1f5f9;">
+                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">Linkage Assurance Plc</p>
+                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                </td>
+              </tr>
+
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+    `;
+
+    const recipients = [email, adminEmail].filter(Boolean);
+    try {
+      const result = await this.sendEmail(recipients.join(','), subject, html);
+      console.log('Overpayment email sent to:', recipients.join(', '));
+      return result;
+    } catch (error) {
+      console.error('Failed to send overpayment email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Send underpayment notification (shareholder + admin)
+  async sendUnderpaymentEmail({ email, name, transactionRef, amountExpected, amountReceived, balance, paymentDate }) {
+    const subject = 'Incomplete Payment — Balance Required | Linkage Assurance Plc Rights Issue';
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const fmt = (n) => parseFloat(n).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9;">
+        <tr>
+          <td align="center" style="padding:40px 10px;">
+            <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+
+              <!-- Header -->
+              <tr>
+                <td style="background:linear-gradient(135deg,#7f1d1d 0%,#991b1b 100%);padding:48px 40px;text-align:center;">
+                  <div style="background-color:#ef4444;width:64px;height:64px;border-radius:32px;margin:0 auto 24px;display:table;">
+                    <span style="display:table-cell;vertical-align:middle;color:#ffffff;font-size:32px;font-weight:bold;">↓</span>
+                  </div>
+                  <h1 style="color:#ffffff;font-size:24px;margin:0;font-weight:800;">Incomplete Payment</h1>
+                  <p style="color:#fca5a5;font-size:13px;margin:8px 0 0;text-transform:uppercase;font-weight:700;letter-spacing:0.1em;">Balance Required to Complete Application</p>
+                </td>
+              </tr>
+
+              <!-- Content -->
+              <tr>
+                <td style="padding:40px;">
+                  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
+                    Dear <strong>${name || 'Valued Shareholder'}</strong>,
+                  </p>
+                  <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 32px;">
+                    We received a payment for your Linkage Assurance Plc Rights Issue application, but the amount sent is <strong>less than the required amount</strong>. Your application cannot be fully processed until the outstanding balance is paid.
+                  </p>
+
+                  <!-- Variance Box -->
+                  <div style="background-color:#fef2f2;border:1px solid #fee2e2;border-radius:16px;overflow:hidden;margin-bottom:32px;">
+                    <div style="padding:20px 24px;border-bottom:1px dashed #fee2e2;">
+                      <p style="color:#991b1b;font-size:11px;font-weight:700;text-transform:uppercase;margin:0 0 4px;">Transaction Reference</p>
+                      <p style="color:#1c1917;font-size:15px;font-weight:700;font-family:monospace;margin:0;">${transactionRef}</p>
+                    </div>
+                    <div style="padding:24px;">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="padding:8px 0;font-size:14px;color:#991b1b;">Amount Required</td>
+                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(amountExpected)}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 0;font-size:14px;color:#991b1b;">Amount Received</td>
+                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(amountReceived)}</td>
+                        </tr>
+                        <tr style="border-top:2px solid #fee2e2;">
+                          <td style="padding:16px 0 0;font-size:15px;color:#991b1b;font-weight:700;">Balance to Pay</td>
+                          <td style="padding:16px 0 0;font-size:28px;color:#dc2626;font-weight:800;text-align:right;">₦${fmt(balance)}</td>
+                        </tr>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Action Required Box -->
+                  <div style="background-color:#fff7ed;border-left:4px solid #f97316;padding:20px;border-radius:4px;margin-bottom:24px;">
+                    <p style="color:#9a3412;font-size:13px;font-weight:700;margin:0 0 8px;">Action Required</p>
+                    <ul style="color:#c2410c;font-size:13px;margin:0;padding-left:20px;line-height:1.8;">
+                      <li>Please log back into the portal and pay the outstanding balance of <strong>₦${fmt(balance)}</strong>.</li>
+                      <li>Your application will be held pending receipt of the full balance.</li>
+                      <li>If the balance is not received before the offer closes, your partial payment will be subject to the issuer's reconciliation policy.</li>
+                    </ul>
+                  </div>
+
+                  <p style="color:#94a3b8;font-size:12px;margin:0;text-align:center;">Payment Date: ${paymentDate}</p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color:#f8fafc;padding:32px;text-align:center;border-top:1px solid #f1f5f9;">
+                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">Linkage Assurance Plc</p>
+                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                </td>
+              </tr>
+
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+    `;
+
+    const recipients = [email, adminEmail].filter(Boolean);
+    try {
+      const result = await this.sendEmail(recipients.join(','), subject, html);
+      console.log('Underpayment email sent to:', recipients.join(', '));
+      return result;
+    } catch (error) {
+      console.error('Failed to send underpayment email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // Generic email sending method for custom emails
   async sendCustomEmail(to, subject, html, attachments = []) {
     return await this.sendEmail(to, subject, html, attachments);

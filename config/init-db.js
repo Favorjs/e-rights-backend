@@ -253,12 +253,39 @@ const initDatabase = async () => {
 
     // Add payment_status column to rights_submissions if it doesn't exist
     await pool.query(`
-      ALTER TABLE rights_submissions 
+      ALTER TABLE rights_submissions
       ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'successful', 'failed')),
       ADD COLUMN IF NOT EXISTS payment_ref TEXT,
       ADD COLUMN IF NOT EXISTS payment_date TIMESTAMP
     `).catch(() => { });
 
+    // Extend dynamic_nuban_accounts status to support OVERPAID and UNDERPAID
+    await pool.query(`
+      ALTER TABLE dynamic_nuban_accounts
+      DROP CONSTRAINT IF EXISTS dynamic_nuban_accounts_status_check
+    `).catch(() => { });
+    await pool.query(`
+      ALTER TABLE dynamic_nuban_accounts
+      ADD CONSTRAINT dynamic_nuban_accounts_status_check
+      CHECK (status IN ('VERIFIED', 'PENDING', 'INITIALIZED', 'FAILED', 'OVERPAID', 'UNDERPAID'))
+    `).catch(() => { });
+
+    // Add amount_received column to track actual payment received from VetroPay
+    await pool.query(`
+      ALTER TABLE dynamic_nuban_accounts
+      ADD COLUMN IF NOT EXISTS amount_received NUMERIC(15,2)
+    `).catch(() => { });
+
+    // Extend rights_submissions payment_status to support overpaid and underpaid
+    await pool.query(`
+      ALTER TABLE rights_submissions
+      DROP CONSTRAINT IF EXISTS rights_submissions_payment_status_check
+    `).catch(() => { });
+    await pool.query(`
+      ALTER TABLE rights_submissions
+      ADD CONSTRAINT rights_submissions_payment_status_check
+      CHECK (payment_status IN ('pending', 'successful', 'failed', 'overpaid', 'underpaid'))
+    `).catch(() => { });
 
     // Create admin users table (unchanged)
     await pool.query(`

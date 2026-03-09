@@ -252,28 +252,50 @@ router.post('/public/verify', async (req, res) => {
     const baseAmount = parseFloat(transaction.amount);
 
     if (queryResult.status === 'success' && queryResult.data?.paymentReceived === true) {
-      console.log('Payment received! Updating database...');
+      console.log('Payment received! Checking amount variance...');
 
-      // Update transaction status
+      const amountReceived = parseFloat(queryResult.data?.amountReceived || transaction.amount);
+      const TOLERANCE = 1; // ₦1 tolerance for rounding differences
+
+      let dbStatus, submissionPaymentStatus, varianceType;
+      const diff = amountReceived - baseAmount;
+
+      if (Math.abs(diff) <= TOLERANCE) {
+        varianceType = 'exact';
+        dbStatus = 'VERIFIED';
+        submissionPaymentStatus = 'successful';
+      } else if (diff > TOLERANCE) {
+        varianceType = 'overpaid';
+        dbStatus = 'OVERPAID';
+        submissionPaymentStatus = 'overpaid';
+        console.log(`Overpayment detected: received ₦${amountReceived}, expected ₦${baseAmount}, excess ₦${diff.toFixed(2)}`);
+      } else {
+        varianceType = 'underpaid';
+        dbStatus = 'UNDERPAID';
+        submissionPaymentStatus = 'underpaid';
+        console.log(`Underpayment detected: received ₦${amountReceived}, expected ₦${baseAmount}, balance ₦${Math.abs(diff).toFixed(2)}`);
+      }
+
+      const excess = varianceType === 'overpaid' ? diff : 0;
+      const balance = varianceType === 'underpaid' ? Math.abs(diff) : 0;
+
+      // Update transaction status and record actual amount received
       await pool.query(
-        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2 WHERE transaction_ref = $3',
-        ['VERIFIED', JSON.stringify(queryResult), txRef]
+        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
+        [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
       );
 
       // Log transaction to wallet_actions for admin visibility
-      const amountPaid = parseFloat(queryResult.data?.amountReceived || transaction.amount);
-      const processorFee = Math.max(0, amountPaid - baseAmount);
-
       await pool.query(
-        `INSERT INTO wallet_actions 
-        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp) 
+        `INSERT INTO wallet_actions
+        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
-          1, // Main ledger
-          amountPaid,
+          1,
+          amountReceived,
           'CREDIT',
           txRef,
-          `Rights Issue Payment - Account: ${transaction.account_number}`,
+          `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`,
           new Date()
         ]
       );
@@ -282,65 +304,98 @@ router.post('/public/verify', async (req, res) => {
 
       // Update or create wallet balance for the shareholder
       if (transaction.shareholder_id) {
-        // Check if wallet exists for this shareholder
         const walletCheck = await pool.query(
           'SELECT id, balance FROM wallets WHERE shareholder_id = $1',
           [transaction.shareholder_id]
         );
 
         if (walletCheck.rows.length > 0) {
-          // Update existing wallet balance
-          const currentBalance = parseFloat(walletCheck.rows[0].balance) || 0;
-          const newBalance = currentBalance + amountPaid;
+          const newBalance = (parseFloat(walletCheck.rows[0].balance) || 0) + amountReceived;
           await pool.query(
             'UPDATE wallets SET balance = $1, updated_at = $2 WHERE shareholder_id = $3',
             [newBalance, new Date(), transaction.shareholder_id]
           );
-          console.log(`Updated wallet balance to ${newBalance} for shareholder ${transaction.shareholder_id}`);
         } else {
-          // Create new wallet for shareholder
           await pool.query(
             'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-            [transaction.shareholder_id, amountPaid, new Date(), new Date()]
+            [transaction.shareholder_id, amountReceived, new Date(), new Date()]
           );
-          console.log(`Created wallet with balance ${amountPaid} for shareholder ${transaction.shareholder_id}`);
         }
       }
 
       // Update rights_submissions payment_status if submissionId provided
       if (submissionId) {
         await pool.query(
-          `UPDATE rights_submissions 
-           SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4 
+          `UPDATE rights_submissions
+           SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4
            WHERE id = $5`,
-          ['successful', txRef, new Date(), new Date(), submissionId]
+          [submissionPaymentStatus, txRef, new Date(), new Date(), submissionId]
         );
-        console.log('Updated rights_submissions payment_status to successful for ID:', submissionId);
+        console.log(`Updated rights_submissions payment_status to '${submissionPaymentStatus}' for ID:`, submissionId);
       }
 
-      // Send success email if we have shareholder email
+      // Send appropriate email based on variance type
       if (shareholderEmail) {
         try {
-          await mailgunEmailService.sendPaymentSuccessEmail({
-            email: shareholderEmail,
-            name: shareholderName,
-            transactionRef: txRef,
-            amount: baseAmount,
-            amountPaid: amountPaid,
-            processorFee: processorFee,
-            paymentDate: new Date().toLocaleString()
-          });
-          console.log('Payment success email sent to:', shareholderEmail);
+          if (varianceType === 'exact') {
+            await mailgunEmailService.sendPaymentSuccessEmail({
+              email: shareholderEmail,
+              name: shareholderName,
+              transactionRef: txRef,
+              amount: baseAmount,
+              amountPaid: amountReceived,
+              processorFee: 0,
+              paymentDate: new Date().toLocaleString()
+            });
+          } else if (varianceType === 'overpaid') {
+            await mailgunEmailService.sendOverpaymentEmail({
+              email: shareholderEmail,
+              name: shareholderName,
+              transactionRef: txRef,
+              amountExpected: baseAmount,
+              amountReceived,
+              excess,
+              paymentDate: new Date().toLocaleString()
+            });
+          } else if (varianceType === 'underpaid') {
+            await mailgunEmailService.sendUnderpaymentEmail({
+              email: shareholderEmail,
+              name: shareholderName,
+              transactionRef: txRef,
+              amountExpected: baseAmount,
+              amountReceived,
+              balance,
+              paymentDate: new Date().toLocaleString()
+            });
+          }
+          console.log(`Payment ${varianceType} email sent to:`, shareholderEmail);
         } catch (emailError) {
           console.error('Failed to send payment email:', emailError);
-          // Don't fail the request if email fails
         }
       }
 
+      // Overpaid: payment accepted, user can continue
+      if (varianceType === 'exact' || varianceType === 'overpaid') {
+        return res.json({
+          success: true,
+          paymentReceived: true,
+          paymentStatus: dbStatus,
+          amountExpected: baseAmount,
+          amountPaid: amountReceived,
+          excess: varianceType === 'overpaid' ? excess : 0,
+          data: { status: dbStatus, amount: transaction.amount }
+        });
+      }
+
+      // Underpaid: payment not fully accepted, user must pay balance
       return res.json({
         success: true,
-        paymentReceived: true,
-        data: { status: 'VERIFIED', amount: transaction.amount }
+        paymentReceived: false,
+        paymentStatus: 'UNDERPAID',
+        amountExpected: baseAmount,
+        amountPaid: amountReceived,
+        balance,
+        data: { status: 'UNDERPAID', amount: transaction.amount }
       });
     }
 
@@ -434,24 +489,38 @@ router.post('/public/webhook', async (req, res) => {
     console.log('Webhook: Vetropay query result:', JSON.stringify(queryResult, null, 2));
 
     if (queryResult.status === 'success' && queryResult.data?.paymentReceived === true) {
-      console.log('Webhook: Payment verified! Updating systems...');
+      console.log('Webhook: Payment received! Checking amount variance...');
 
-      const amountPaid = parseFloat(queryResult.data?.amountReceived || transaction.amount);
+      const amountReceived = parseFloat(queryResult.data?.amountReceived || transaction.amount);
       const baseAmount = parseFloat(transaction.amount);
-      const processorFee = Math.max(0, amountPaid - baseAmount);
+      const TOLERANCE = 1;
+      const diff = amountReceived - baseAmount;
 
-      // 1. Update transaction status
+      let dbStatus, submissionPaymentStatus, varianceType;
+      if (Math.abs(diff) <= TOLERANCE) {
+        varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
+      } else if (diff > TOLERANCE) {
+        varianceType = 'overpaid'; dbStatus = 'OVERPAID'; submissionPaymentStatus = 'overpaid';
+      } else {
+        varianceType = 'underpaid'; dbStatus = 'UNDERPAID'; submissionPaymentStatus = 'underpaid';
+      }
+      const excess = varianceType === 'overpaid' ? diff : 0;
+      const balance = varianceType === 'underpaid' ? Math.abs(diff) : 0;
+
+      console.log(`Webhook: variance=${varianceType}, received=₦${amountReceived}, expected=₦${baseAmount}`);
+
+      // 1. Update transaction status and amount_received
       await pool.query(
-        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2 WHERE transaction_ref = $3',
-        ['VERIFIED', JSON.stringify(queryResult), txRef]
+        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
+        [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
       );
 
       // 2. Log to wallet_actions
       await pool.query(
-        `INSERT INTO wallet_actions 
-        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp) 
+        `INSERT INTO wallet_actions
+        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [1, amountPaid, 'CREDIT', txRef, `Webhook: Rights Issue Payment - Account: ${transaction.account_number}`, new Date()]
+        [1, amountReceived, 'CREDIT', txRef, `Webhook: Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
       );
 
       // 3. Update shareholder wallet
@@ -462,7 +531,7 @@ router.post('/public/webhook', async (req, res) => {
         );
 
         if (walletCheck.rows.length > 0) {
-          const newBalance = (parseFloat(walletCheck.rows[0].balance) || 0) + amountPaid;
+          const newBalance = (parseFloat(walletCheck.rows[0].balance) || 0) + amountReceived;
           await pool.query(
             'UPDATE wallets SET balance = $1, updated_at = $2 WHERE shareholder_id = $3',
             [newBalance, new Date(), transaction.shareholder_id]
@@ -470,47 +539,56 @@ router.post('/public/webhook', async (req, res) => {
         } else {
           await pool.query(
             'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-            [transaction.shareholder_id, amountPaid, new Date(), new Date()]
+            [transaction.shareholder_id, amountReceived, new Date(), new Date()]
           );
         }
       }
 
       // 4. Update rights_submissions if applicable
-      // Find submission associated with this txRef
       const submissionCheck = await pool.query(
         'SELECT id, name, email FROM rights_submissions WHERE payment_ref = $1',
         [txRef]
       );
 
-      let shareholderName = transaction.name;
+      let shareholderName = transaction.shareholder_name;
       let shareholderEmail = transaction.email;
 
       if (submissionCheck.rows.length > 0) {
         const submission = submissionCheck.rows[0];
         await pool.query(
-          `UPDATE rights_submissions 
-           SET payment_status = $1, payment_date = $2, updated_at = $3 
+          `UPDATE rights_submissions
+           SET payment_status = $1, payment_date = $2, updated_at = $3
            WHERE id = $4`,
-          ['successful', new Date(), new Date(), submission.id]
+          [submissionPaymentStatus, new Date(), new Date(), submission.id]
         );
         shareholderName = submission.name;
         shareholderEmail = submission.email;
-        console.log('Webhook: Updated rights_submission status to successful for ID:', submission.id);
+        console.log(`Webhook: Updated rights_submission status to '${submissionPaymentStatus}' for ID:`, submission.id);
       }
 
-      // 5. Send success email
+      // 5. Send appropriate email
       if (shareholderEmail) {
         try {
-          await mailgunEmailService.sendPaymentSuccessEmail({
-            email: shareholderEmail,
-            name: shareholderName,
-            transactionRef: txRef,
-            amount: baseAmount,
-            amountPaid: amountPaid,
-            processorFee: processorFee,
-            paymentDate: new Date().toLocaleString()
-          });
-          console.log('Webhook: Payment success email sent to:', shareholderEmail);
+          if (varianceType === 'exact') {
+            await mailgunEmailService.sendPaymentSuccessEmail({
+              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+              amount: baseAmount, amountPaid: amountReceived, processorFee: 0,
+              paymentDate: new Date().toLocaleString()
+            });
+          } else if (varianceType === 'overpaid') {
+            await mailgunEmailService.sendOverpaymentEmail({
+              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+              amountExpected: baseAmount, amountReceived, excess,
+              paymentDate: new Date().toLocaleString()
+            });
+          } else if (varianceType === 'underpaid') {
+            await mailgunEmailService.sendUnderpaymentEmail({
+              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+              amountExpected: baseAmount, amountReceived, balance,
+              paymentDate: new Date().toLocaleString()
+            });
+          }
+          console.log(`Webhook: Payment ${varianceType} email sent to:`, shareholderEmail);
         } catch (emailError) {
           console.error('Webhook: Failed to send payment email:', emailError);
         }
