@@ -232,12 +232,16 @@ router.post('/public/verify', async (req, res) => {
     const transaction = existingTransaction.rows[0];
     console.log('Found transaction:', { txRef, status: transaction.status, amount: transaction.amount });
 
-    if (transaction.status === 'VERIFIED') {
-      console.log('Transaction already verified, returning success');
+    // All statuses that mean the transaction has been fully processed — block re-processing
+    const TERMINAL_STATUSES = ['VERIFIED', 'OVERPAID', 'UNDERPAID', 'FAILED'];
+
+    if (TERMINAL_STATUSES.includes(transaction.status)) {
+      console.log(`Transaction already in terminal state (${transaction.status}), skipping`);
       return res.json({
         success: true,
-        paymentReceived: true,
-        data: { status: 'VERIFIED', amount: transaction.amount }
+        paymentReceived: ['VERIFIED', 'OVERPAID'].includes(transaction.status),
+        paymentStatus: transaction.status,
+        data: { status: transaction.status, amount: transaction.amount }
       });
     }
 
@@ -255,116 +259,115 @@ router.post('/public/verify', async (req, res) => {
       console.log('Payment received! Checking amount variance...');
 
       const amountReceived = parseFloat(queryResult.data?.amountReceived || transaction.amount);
-      const TOLERANCE = 1; // ₦1 tolerance for rounding differences
+      const TOLERANCE = 1;
 
       let dbStatus, submissionPaymentStatus, varianceType;
       const diff = amountReceived - baseAmount;
 
       if (Math.abs(diff) <= TOLERANCE) {
-        varianceType = 'exact';
-        dbStatus = 'VERIFIED';
-        submissionPaymentStatus = 'successful';
+        varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
       } else if (diff > TOLERANCE) {
-        varianceType = 'overpaid';
-        dbStatus = 'OVERPAID';
-        submissionPaymentStatus = 'overpaid';
-        console.log(`Overpayment detected: received ₦${amountReceived}, expected ₦${baseAmount}, excess ₦${diff.toFixed(2)}`);
+        varianceType = 'overpaid'; dbStatus = 'OVERPAID'; submissionPaymentStatus = 'overpaid';
+        console.log(`Overpayment: received ₦${amountReceived}, expected ₦${baseAmount}, excess ₦${diff.toFixed(2)}`);
       } else {
-        varianceType = 'underpaid';
-        dbStatus = 'UNDERPAID';
-        submissionPaymentStatus = 'underpaid';
-        console.log(`Underpayment detected: received ₦${amountReceived}, expected ₦${baseAmount}, balance ₦${Math.abs(diff).toFixed(2)}`);
+        varianceType = 'underpaid'; dbStatus = 'UNDERPAID'; submissionPaymentStatus = 'underpaid';
+        console.log(`Underpayment: received ₦${amountReceived}, expected ₦${baseAmount}, balance ₦${Math.abs(diff).toFixed(2)}`);
       }
 
       const excess = varianceType === 'overpaid' ? diff : 0;
       const balance = varianceType === 'underpaid' ? Math.abs(diff) : 0;
 
-      // Update transaction status and record actual amount received
-      await pool.query(
-        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
-        [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
-      );
+      // Acquire a row-level lock and perform all DB writes atomically.
+      // The FOR UPDATE re-checks the status under the lock — if a concurrent
+      // request already processed this transaction, we skip gracefully.
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
 
-      // Log transaction to wallet_actions for admin visibility
-      await pool.query(
-        `INSERT INTO wallet_actions
-        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-        VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          1,
-          amountReceived,
-          'CREDIT',
-          txRef,
-          `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`,
-          new Date()
-        ]
-      );
-
-      console.log('Transaction logged to wallet_actions');
-
-      // Update or create wallet balance for the shareholder
-      if (transaction.shareholder_id) {
-        const walletCheck = await pool.query(
-          'SELECT id, balance FROM wallets WHERE shareholder_id = $1',
-          [transaction.shareholder_id]
+        const locked = await client.query(
+          'SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE',
+          [txRef]
         );
 
-        if (walletCheck.rows.length > 0) {
-          const newBalance = (parseFloat(walletCheck.rows[0].balance) || 0) + amountReceived;
-          await pool.query(
-            'UPDATE wallets SET balance = $1, updated_at = $2 WHERE shareholder_id = $3',
-            [newBalance, new Date(), transaction.shareholder_id]
-          );
+        if (TERMINAL_STATUSES.includes(locked.rows[0]?.status)) {
+          // Another concurrent request beat us to it — nothing to do
+          await client.query('ROLLBACK');
+          console.log('Concurrent request already processed this transaction, skipping');
         } else {
-          await pool.query(
-            'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-            [transaction.shareholder_id, amountReceived, new Date(), new Date()]
+          // 1. Update transaction status
+          await client.query(
+            'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
+            [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
           );
+
+          // 2. Log to wallet_actions — ON CONFLICT is the last line of defence against duplicates
+          await client.query(
+            `INSERT INTO wallet_actions
+             (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (transaction_ref) DO NOTHING`,
+            [1, amountReceived, 'CREDIT', txRef,
+             `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
+          );
+
+          // 3. Update wallet atomically (balance = balance + amount avoids read-modify-write race)
+          if (transaction.shareholder_id) {
+            const walletExists = await client.query(
+              'SELECT id FROM wallets WHERE shareholder_id = $1', [transaction.shareholder_id]
+            );
+            if (walletExists.rows.length > 0) {
+              await client.query(
+                'UPDATE wallets SET balance = balance + $1, updated_at = $2 WHERE shareholder_id = $3',
+                [amountReceived, new Date(), transaction.shareholder_id]
+              );
+            } else {
+              await client.query(
+                'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
+                [transaction.shareholder_id, amountReceived, new Date(), new Date()]
+              );
+            }
+          }
+
+          // 4. Update rights_submissions if submissionId provided
+          if (submissionId) {
+            await client.query(
+              `UPDATE rights_submissions
+               SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4
+               WHERE id = $5`,
+              [submissionPaymentStatus, txRef, new Date(), new Date(), submissionId]
+            );
+            console.log(`Updated rights_submissions to '${submissionPaymentStatus}' for ID:`, submissionId);
+          }
+
+          await client.query('COMMIT');
+          console.log('Transaction committed to wallet_actions');
         }
+      } catch (dbError) {
+        await client.query('ROLLBACK');
+        throw dbError;
+      } finally {
+        client.release();
       }
 
-      // Update rights_submissions payment_status if submissionId provided
-      if (submissionId) {
-        await pool.query(
-          `UPDATE rights_submissions
-           SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4
-           WHERE id = $5`,
-          [submissionPaymentStatus, txRef, new Date(), new Date(), submissionId]
-        );
-        console.log(`Updated rights_submissions payment_status to '${submissionPaymentStatus}' for ID:`, submissionId);
-      }
-
-      // Send appropriate email based on variance type
+      // Send email outside the transaction (non-critical, failures won't roll back payment)
       if (shareholderEmail) {
         try {
           if (varianceType === 'exact') {
             await mailgunEmailService.sendPaymentSuccessEmail({
-              email: shareholderEmail,
-              name: shareholderName,
-              transactionRef: txRef,
-              amount: baseAmount,
-              amountPaid: amountReceived,
-              processorFee: 0,
+              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+              amount: baseAmount, amountPaid: amountReceived, processorFee: 0,
               paymentDate: new Date().toLocaleString()
             });
           } else if (varianceType === 'overpaid') {
             await mailgunEmailService.sendOverpaymentEmail({
-              email: shareholderEmail,
-              name: shareholderName,
-              transactionRef: txRef,
-              amountExpected: baseAmount,
-              amountReceived,
-              excess,
+              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+              amountExpected: baseAmount, amountReceived, excess,
               paymentDate: new Date().toLocaleString()
             });
           } else if (varianceType === 'underpaid') {
             await mailgunEmailService.sendUnderpaymentEmail({
-              email: shareholderEmail,
-              name: shareholderName,
-              transactionRef: txRef,
-              amountExpected: baseAmount,
-              amountReceived,
-              balance,
+              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+              amountExpected: baseAmount, amountReceived, balance,
               paymentDate: new Date().toLocaleString()
             });
           }
@@ -374,73 +377,48 @@ router.post('/public/verify', async (req, res) => {
         }
       }
 
-      // Overpaid: payment accepted, user can continue
       if (varianceType === 'exact' || varianceType === 'overpaid') {
         return res.json({
-          success: true,
-          paymentReceived: true,
-          paymentStatus: dbStatus,
-          amountExpected: baseAmount,
-          amountPaid: amountReceived,
+          success: true, paymentReceived: true, paymentStatus: dbStatus,
+          amountExpected: baseAmount, amountPaid: amountReceived,
           excess: varianceType === 'overpaid' ? excess : 0,
           data: { status: dbStatus, amount: transaction.amount }
         });
       }
 
-      // Underpaid: payment not fully accepted, user must pay balance
       return res.json({
-        success: true,
-        paymentReceived: false,
-        paymentStatus: 'UNDERPAID',
-        amountExpected: baseAmount,
-        amountPaid: amountReceived,
-        balance,
+        success: true, paymentReceived: false, paymentStatus: 'UNDERPAID',
+        amountExpected: baseAmount, amountPaid: amountReceived, balance,
         data: { status: 'UNDERPAID', amount: transaction.amount }
       });
     }
 
-    // Check if payment explicitly failed
+    // Payment explicitly failed
     if (queryResult.status === 'failed' || queryResult.data?.status === 'FAILED') {
       console.log('Payment failed! Updating database...');
-
-      // Update transaction status to FAILED
       await pool.query(
         'UPDATE dynamic_nuban_accounts SET status = $1, response = $2 WHERE transaction_ref = $3',
         ['FAILED', JSON.stringify(queryResult), txRef]
       );
-
-      // Update rights_submissions payment_status if submissionId provided
       if (submissionId) {
         await pool.query(
-          `UPDATE rights_submissions 
-           SET payment_status = $1, payment_ref = $2, updated_at = $3 
-           WHERE id = $4`,
+          `UPDATE rights_submissions SET payment_status = $1, payment_ref = $2, updated_at = $3 WHERE id = $4`,
           ['failed', txRef, new Date(), submissionId]
         );
-        console.log('Updated rights_submissions payment_status to failed for ID:', submissionId);
       }
-
-      // Send failure email if we have shareholder email
       if (shareholderEmail) {
         try {
           await mailgunEmailService.sendPaymentFailureEmail({
-            email: shareholderEmail,
-            name: shareholderName,
-            transactionRef: txRef,
-            amount: baseAmount,
-            errorMessage: queryResult.message || 'Payment verification failed',
+            email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+            amount: baseAmount, errorMessage: queryResult.message || 'Payment verification failed',
             paymentDate: new Date().toLocaleString()
           });
-          console.log('Payment failure email sent to:', shareholderEmail);
         } catch (emailError) {
           console.error('Failed to send payment failure email:', emailError);
         }
       }
-
       return res.json({
-        success: true,
-        paymentReceived: false,
-        paymentFailed: true,
+        success: true, paymentReceived: false, paymentFailed: true,
         data: { status: 'FAILED', amount: transaction.amount }
       });
     }
@@ -479,12 +457,15 @@ router.post('/public/webhook', async (req, res) => {
 
     const transaction = existingTransaction.rows[0];
 
-    // If already verified, just return success to Vetropay
-    if (transaction.status === 'VERIFIED') {
+    // All terminal statuses — block re-processing for all of them, not just VERIFIED
+    const TERMINAL_STATUSES = ['VERIFIED', 'OVERPAID', 'UNDERPAID', 'FAILED'];
+
+    if (TERMINAL_STATUSES.includes(transaction.status)) {
+      console.log(`Webhook: Transaction already in terminal state (${transaction.status}), skipping`);
       return res.status(200).json({ success: true, message: 'Already processed' });
     }
 
-    // Verify with Vetropay to be sure (security)
+    // Verify with Vetropay to be sure (security) — no DB lock held during external call
     const queryResult = await paymentService.queryDynamic(txRef);
     console.log('Webhook: Vetropay query result:', JSON.stringify(queryResult, null, 2));
 
@@ -509,64 +490,88 @@ router.post('/public/webhook', async (req, res) => {
 
       console.log(`Webhook: variance=${varianceType}, received=₦${amountReceived}, expected=₦${baseAmount}`);
 
-      // 1. Update transaction status and amount_received
-      await pool.query(
-        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
-        [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
-      );
-
-      // 2. Log to wallet_actions
-      await pool.query(
-        `INSERT INTO wallet_actions
-        (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-        VALUES ($1, $2, $3, $4, $5, $6)`,
-        [1, amountReceived, 'CREDIT', txRef, `Webhook: Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
-      );
-
-      // 3. Update shareholder wallet
-      if (transaction.shareholder_id) {
-        const walletCheck = await pool.query(
-          'SELECT id, balance FROM wallets WHERE shareholder_id = $1',
-          [transaction.shareholder_id]
-        );
-
-        if (walletCheck.rows.length > 0) {
-          const newBalance = (parseFloat(walletCheck.rows[0].balance) || 0) + amountReceived;
-          await pool.query(
-            'UPDATE wallets SET balance = $1, updated_at = $2 WHERE shareholder_id = $3',
-            [newBalance, new Date(), transaction.shareholder_id]
-          );
-        } else {
-          await pool.query(
-            'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-            [transaction.shareholder_id, amountReceived, new Date(), new Date()]
-          );
-        }
-      }
-
-      // 4. Update rights_submissions if applicable
-      const submissionCheck = await pool.query(
-        'SELECT id, name, email FROM rights_submissions WHERE payment_ref = $1',
-        [txRef]
-      );
-
+      // Acquire row-level lock and perform all DB writes atomically.
+      // FOR UPDATE re-checks status under the lock — if a concurrent request
+      // (e.g. the user also hitting /public/verify) already processed this, skip.
       let shareholderName = transaction.shareholder_name;
       let shareholderEmail = transaction.email;
 
-      if (submissionCheck.rows.length > 0) {
-        const submission = submissionCheck.rows[0];
-        await pool.query(
-          `UPDATE rights_submissions
-           SET payment_status = $1, payment_date = $2, updated_at = $3
-           WHERE id = $4`,
-          [submissionPaymentStatus, new Date(), new Date(), submission.id]
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        const locked = await client.query(
+          'SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE',
+          [txRef]
         );
-        shareholderName = submission.name;
-        shareholderEmail = submission.email;
-        console.log(`Webhook: Updated rights_submission status to '${submissionPaymentStatus}' for ID:`, submission.id);
+
+        if (TERMINAL_STATUSES.includes(locked.rows[0]?.status)) {
+          await client.query('ROLLBACK');
+          console.log('Webhook: Concurrent request already processed this transaction, skipping');
+        } else {
+          // 1. Update transaction status
+          await client.query(
+            'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
+            [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
+          );
+
+          // 2. Log to wallet_actions — ON CONFLICT is last line of defence against duplicates
+          await client.query(
+            `INSERT INTO wallet_actions
+             (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (transaction_ref) DO NOTHING`,
+            [1, amountReceived, 'CREDIT', txRef,
+             `Webhook: Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
+          );
+
+          // 3. Update wallet atomically (balance = balance + amount avoids read-modify-write race)
+          if (transaction.shareholder_id) {
+            const walletExists = await client.query(
+              'SELECT id FROM wallets WHERE shareholder_id = $1', [transaction.shareholder_id]
+            );
+            if (walletExists.rows.length > 0) {
+              await client.query(
+                'UPDATE wallets SET balance = balance + $1, updated_at = $2 WHERE shareholder_id = $3',
+                [amountReceived, new Date(), transaction.shareholder_id]
+              );
+            } else {
+              await client.query(
+                'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
+                [transaction.shareholder_id, amountReceived, new Date(), new Date()]
+              );
+            }
+          }
+
+          // 4. Update rights_submissions if applicable
+          const submissionCheck = await client.query(
+            'SELECT id, name, email FROM rights_submissions WHERE payment_ref = $1', [txRef]
+          );
+
+          if (submissionCheck.rows.length > 0) {
+            const submission = submissionCheck.rows[0];
+            await client.query(
+              `UPDATE rights_submissions
+               SET payment_status = $1, payment_date = $2, updated_at = $3
+               WHERE id = $4`,
+              [submissionPaymentStatus, new Date(), new Date(), submission.id]
+            );
+            shareholderName = submission.name;
+            shareholderEmail = submission.email;
+            console.log(`Webhook: Updated rights_submission to '${submissionPaymentStatus}' for ID:`, submission.id);
+          }
+
+          await client.query('COMMIT');
+          console.log('Webhook: Transaction committed');
+        }
+      } catch (dbError) {
+        await client.query('ROLLBACK');
+        throw dbError;
+      } finally {
+        client.release();
       }
 
-      // 5. Send appropriate email
+      // Send email outside the transaction (non-critical)
       if (shareholderEmail) {
         try {
           if (varianceType === 'exact') {

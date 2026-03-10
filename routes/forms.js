@@ -9,6 +9,11 @@ const path = require('path');
 // app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const { sendRightsSubmissionNotification, sendShareholderConfirmation } = require('../services/emailService');
 const FileUpload = require('../utils/fileUpload'); // Cloudinary utility
+const { appendSubmissionToSheet } = require('../utils/googleSheets');
+
+// Number formatting helpers used when embedding values into PDF fields
+const fmtShares = (n) => (n == null || n === '') ? '' : Math.round(Number(n)).toLocaleString('en-NG');
+const fmtMoney  = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Helper: generate filled rights PDF as Buffer from provided fields
 // Helper: generate filled rights PDF as Buffer from provided fields
@@ -160,21 +165,53 @@ async function generateRightsPdfBuffer(formData) {
       setFieldIfExists('Name', formData.name);
 
     // Rights and shares info (always populate)
-    setFieldIfExists('holdings', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings) ||
-      setFieldIfExists('Shares Held', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings);
+    setFieldIfExists('holdings', fmtShares(formData.holdings)) ||
+      setFieldIfExists('Shares Held', fmtShares(formData.holdings));
 
-    setFieldIfExists('rights_issue', (formData.rights_issue ?? '').toLocaleString?.() ?? formData.rights_issue) ||
-      setFieldIfExists('Rights Allotted', (formData.rights_issue ?? '').toLocaleString?.() ?? formData.rights_issue);
+    setFieldIfExists('rights_issue', fmtShares(formData.rights_issue)) ||
+      setFieldIfExists('Rights Allotted', fmtShares(formData.rights_issue));
 
-    setFieldIfExists('amount_due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`) ||
-      setFieldIfExists('Amount Due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`);
+    setFieldIfExists('amount_due', `NGN ${fmtMoney(formData.amount_due)}`) ||
+      setFieldIfExists('Amount Due', `NGN ${fmtMoney(formData.amount_due)}`);
 
-    // Stockbroker & CHN details (always populate)
-    setFieldIfExists('stockbroker', formData.stockbroker) ||
-      setFieldIfExists('Stockbroker', formData.stockbroker);
+    // Stockbroker & CHN / CSCS details (always populate)
+    // Resolve stockbroker name and code from DB using the stored stockbroker_id
+    let stockbrokerName = formData.stockbroker_name || '';
+    let stockbrokerCode = formData.stockbroker_code || '';
+    if (formData.stockbroker && !stockbrokerName) {
+      try {
+        const brokerResult = await pool.query(
+          'SELECT name, code FROM stockbrokers WHERE id = $1',
+          [formData.stockbroker]
+        );
+        if (brokerResult.rows.length > 0) {
+          stockbrokerName = brokerResult.rows[0].name || '';
+          stockbrokerCode = brokerResult.rows[0].code || '';
+        }
+      } catch (_) { /* best effort — ignore DB errors during PDF generation */ }
+    }
 
+    setFieldIfExists('stockbroker', stockbrokerName) ||
+      setFieldIfExists('Stockbroker', stockbrokerName) ||
+      setFieldIfExists('Stockbroker name', stockbrokerName);
+
+    setFieldIfExists('stockbroker_name', stockbrokerName) ||
+      setFieldIfExists('Stockbroker Name', stockbrokerName);
+
+    setFieldIfExists('stockbroker_code', stockbrokerCode) ||
+      setFieldIfExists('Stockbroker Code', stockbrokerCode) ||
+      setFieldIfExists('Broker code', stockbrokerCode);
+
+    // CHN — set all common PDF field name variants
     setFieldIfExists('chn', formData.chn) ||
-      setFieldIfExists('CHN number', formData.chn);
+      setFieldIfExists('CHN number', formData.chn) ||
+      setFieldIfExists('CHN', formData.chn);
+
+    // CSCS No is the same as CHN in Nigerian capital markets
+    setFieldIfExists('cscs_no', formData.chn) ||
+      setFieldIfExists('CSCS number', formData.chn) ||
+      setFieldIfExists('CSCS No', formData.chn) ||
+      setFieldIfExists('CSCS Number', formData.chn);
 
     // SECTION LOGIC - CLEAR ALL FIELDS FIRST
     // Clear all conditional fields first to avoid cross-contamination
@@ -209,8 +246,8 @@ async function generateRightsPdfBuffer(formData) {
       setFieldIfExists('accept_full', '✓') ||
         setFieldIfExists('Accept full allotment', '✓');
 
-      setFieldIfExists('amount_payable', formData.amount_payable?.toString() || '') ||
-        setFieldIfExists('Amount payable', formData.amount_payable?.toString() || '');
+      setFieldIfExists('amount_payable', fmtMoney(formData.amount_payable)) ||
+        setFieldIfExists('Amount payable', fmtMoney(formData.amount_payable));
 
       // Additional shares logic
       if (formData.apply_additional && formData.additional_shares > 0) {
@@ -219,11 +256,11 @@ async function generateRightsPdfBuffer(formData) {
         setFieldIfExists('apply_additional', '✓') ||
           setFieldIfExists('Apply for additional shares', '✓');
 
-        setFieldIfExists('additional_shares', formData.additional_shares?.toString() || '') ||
-          setFieldIfExists('Additional shares applied', formData.additional_shares?.toString() || '');
+        setFieldIfExists('additional_shares', fmtShares(formData.additional_shares)) ||
+          setFieldIfExists('Additional shares applied', fmtShares(formData.additional_shares));
 
-        setFieldIfExists('additional_amount', formData.additional_amount?.toString() || '') ||
-          setFieldIfExists('Additional amount payable', formData.additional_amount?.toString() || '');
+        setFieldIfExists('additional_amount', fmtMoney(formData.additional_amount)) ||
+          setFieldIfExists('Additional amount payable', fmtMoney(formData.additional_amount));
 
         setFieldIfExists('accept_smaller_allotment', formData.accept_smaller_allotment ? '✓' : '') ||
           setFieldIfExists('Accept smaller allotment', formData.accept_smaller_allotment ? '✓' : '');
@@ -239,8 +276,8 @@ async function generateRightsPdfBuffer(formData) {
           setFieldIfExists('Branch', formData.additional_payment_branch || '');
       } else if (formData.payment_amount) {
         // Fallback to original payment fields if additional shares not applied
-        setFieldIfExists('payment_amount', formData.payment_amount?.toString() || '') ||
-          setFieldIfExists('Payment amount', formData.payment_amount?.toString() || '');
+        setFieldIfExists('payment_amount', fmtMoney(formData.payment_amount)) ||
+          setFieldIfExists('Payment amount', fmtMoney(formData.payment_amount));
 
         setFieldIfExists('bank_name', formData.bank_name || '') ||
           setFieldIfExists('Bank name', formData.bank_name || '');
@@ -272,14 +309,14 @@ async function generateRightsPdfBuffer(formData) {
       console.log('Processing RENUNCIATION/PARTIAL section');
 
       // SECTION B: Renunciation/Partial Acceptance fields
-      setFieldIfExists('shares_accepted', formData.shares_accepted?.toString() || '') ||
-        setFieldIfExists('Shares accepted', formData.shares_accepted?.toString() || '');
+      setFieldIfExists('shares_accepted', fmtShares(formData.shares_accepted)) ||
+        setFieldIfExists('Shares accepted', fmtShares(formData.shares_accepted));
 
-      setFieldIfExists('amount_payable', formData.amount_payable?.toString() || '') ||
-        setFieldIfExists('Amount payable', formData.amount_payable?.toString() || '');
+      setFieldIfExists('amount_payable', fmtMoney(formData.amount_payable)) ||
+        setFieldIfExists('Amount payable', fmtMoney(formData.amount_payable));
 
-      setFieldIfExists('shares_renounced', formData.shares_renounced?.toString() || '') ||
-        setFieldIfExists('Shares renounced', formData.shares_renounced?.toString() || '');
+      setFieldIfExists('shares_renounced', fmtShares(formData.shares_renounced)) ||
+        setFieldIfExists('Shares renounced', fmtShares(formData.shares_renounced));
 
       setFieldIfExists('accept_partial', formData.accept_partial ? '✓' : '') ||
         setFieldIfExists('Accept partial', formData.accept_partial ? '✓' : '');
@@ -432,7 +469,7 @@ async function generateRightsPdfBufferjustDownload(formData) {
       }
       pdfBytes = await response.arrayBuffer();
     } else {
-      const templatePath = path.join(__dirname, '../rights-form/LINKAGE_RIGHTS_ISSUE.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/LINKAGE_RIGHTS_ISSUE_B.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
@@ -484,15 +521,50 @@ async function generateRightsPdfBufferjustDownload(formData) {
       setFieldIfExists('Name', formData.name);
 
     // Rights and shares info (always populate)
-    setFieldIfExists('holdings', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings) ||
-      setFieldIfExists('Shares Held', (formData.holdings ?? '').toLocaleString?.() ?? formData.holdings);
+    setFieldIfExists('holdings', fmtShares(formData.holdings)) ||
+      setFieldIfExists('Shares Held', fmtShares(formData.holdings));
 
-    setFieldIfExists('rights_issue', (formData.rights_issue ?? '').toLocaleString?.() ?? formData.rights_issue) ||
-      setFieldIfExists('Rights Allotted', (formData.rights_issue ?? '').toLocaleString?.() ?? formData.rights_issue);
+    setFieldIfExists('rights_issue', fmtShares(formData.rights_issue)) ||
+      setFieldIfExists('Rights Allotted', fmtShares(formData.rights_issue));
 
-    setFieldIfExists('amount_due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`) ||
-      setFieldIfExists('Amount Due', `NGN ${(formData.amount_due ?? '').toLocaleString?.() ?? formData.amount_due}`);
+    setFieldIfExists('amount_due', `NGN ${fmtMoney(formData.amount_due)}`) ||
+      setFieldIfExists('Amount Due', `NGN ${fmtMoney(formData.amount_due)}`);
 
+    // Stockbroker & CHN / CSCS details
+    let stockbrokerName = formData.stockbroker_name || '';
+    let stockbrokerCode = formData.stockbroker_code || '';
+    if (formData.stockbroker && !stockbrokerName) {
+      try {
+        const brokerResult = await pool.query(
+          'SELECT name, code FROM stockbrokers WHERE id = $1',
+          [formData.stockbroker]
+        );
+        if (brokerResult.rows.length > 0) {
+          stockbrokerName = brokerResult.rows[0].name || '';
+          stockbrokerCode = brokerResult.rows[0].code || '';
+        }
+      } catch (_) { /* best effort */ }
+    }
+
+    setFieldIfExists('stockbroker', stockbrokerName) ||
+      setFieldIfExists('Stockbroker', stockbrokerName) ||
+      setFieldIfExists('Stockbroker name', stockbrokerName);
+
+    setFieldIfExists('stockbroker_name', stockbrokerName) ||
+      setFieldIfExists('Stockbroker Name', stockbrokerName);
+
+    setFieldIfExists('stockbroker_code', stockbrokerCode) ||
+      setFieldIfExists('Stockbroker Code', stockbrokerCode) ||
+      setFieldIfExists('Broker code', stockbrokerCode);
+
+    setFieldIfExists('chn', formData.chn) ||
+      setFieldIfExists('CHN number', formData.chn) ||
+      setFieldIfExists('CHN', formData.chn);
+
+    setFieldIfExists('cscs_no', formData.chn) ||
+      setFieldIfExists('CSCS number', formData.chn) ||
+      setFieldIfExists('CSCS No', formData.chn) ||
+      setFieldIfExists('CSCS Number', formData.chn);
 
     // Flatten the form if available
     if (form) {
@@ -1252,6 +1324,9 @@ router.post('/submit-rights', async (req, res) => {
       } catch (emailError) {
         console.error('Failed to send background email notifications:', emailError);
       }
+
+      // Append to Google Sheet (non-fatal)
+      await appendSubmissionToSheet(formData, submissionData);
     });
 
     res.status(201).json({

@@ -1,0 +1,129 @@
+const { google } = require('googleapis');
+const path = require('path');
+const pool = require('../config/database');
+
+const CREDENTIALS_PATH = path.join(__dirname, '../google-credentials.json');
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+
+function getAuth() {
+  return new google.auth.GoogleAuth({
+    keyFile: CREDENTIALS_PATH,
+    scopes: SCOPES,
+  });
+}
+
+const fmt = (n) =>
+  n === '' || n === null || n === undefined
+    ? ''
+    : Math.round(Number(n)).toLocaleString('en-NG');
+
+/**
+ * Appends one row to the Google Sheet after a successful submission.
+ * Columns mirror the admin CSV export exactly (A–AA).
+ * Non-fatal: logs errors but never throws.
+ */
+async function appendSubmissionToSheet(formData, submissionData) {
+  try {
+    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      console.warn('GOOGLE_SHEETS_SPREADSHEET_ID not configured — skipping Sheets append');
+      return;
+    }
+
+    // Resolve stockbroker name from ID
+    let stockbrokerName = '';
+    if (formData.stockbroker) {
+      try {
+        const r = await pool.query('SELECT name FROM stockbrokers WHERE id = $1', [formData.stockbroker]);
+        if (r.rows.length > 0) stockbrokerName = r.rows[0].name || '';
+      } catch (_) {}
+    }
+
+    // Resolve shareholder address
+    let shareholderAddress = '';
+    if (formData.shareholder_id) {
+      try {
+        const r = await pool.query('SELECT address FROM shareholders WHERE id = $1', [formData.shareholder_id]);
+        if (r.rows.length > 0) shareholderAddress = r.rows[0].address || '';
+      } catch (_) {}
+    }
+
+    // Name split
+    const nameParts = (formData.name || '').trim().split(/\s+/);
+    const surname    = nameParts[0] || '';
+    const otherNames = nameParts.slice(1).join(' ');
+
+    // Column calculations (matching the CSV export logic)
+    const allottedRights    = Math.round(parseFloat(formData.rights_issue   || 0));
+    const acceptedRights    = Math.round(parseFloat(formData.shares_accepted || 0));
+    const additionalShares  = Math.round(parseFloat(formData.additional_shares || 0));
+
+    const fullAcceptance     = allottedRights === acceptedRights ? acceptedRights : 0;
+    const partialAcceptance  = allottedRights > acceptedRights  ? acceptedRights : 0;
+    const renouncedRights    = allottedRights - acceptedRights;
+    const acceptedAndPaidFor = acceptedRights + additionalShares;
+
+    const value      = Math.round(parseFloat(formData.amount_payable || 0));
+    const amountPaid = Math.round(parseFloat(formData.payment_amount || 0));
+    const verified   = amountPaid > 0 ? amountPaid : value;
+
+    const paymentMethod =
+      formData.additional_payment_cheque_number || formData.partial_payment_cheque_number
+        ? 'CHEQUE'
+        : 'TRANSFER';
+
+    const paymentConfirmation =
+      submissionData.payment_status === 'successful' ? 'CONFIRMED' : 'PENDING';
+
+    const date = new Date().toLocaleDateString('en-GB').replace(/\//g, '.');
+    const phone = formData.mobile_phone || formData.daytime_phone || '';
+
+    const row = [
+      'SHAREHOLDER RIGHTS ACCEPTANCE',          // A
+      stockbrokerName,                           // B
+      submissionData.id,                         // C  S/No
+      formData.reg_account_number || '',         // D
+      formData.bvn || '',                        // E
+      formData.chn || '',                        // F
+      phone,                                     // G
+      formData.email || '',                      // H
+      fmt(allottedRights),                       // I
+      fmt(acceptedRights),                       // J
+      fmt(fullAcceptance),                       // K
+      fmt(partialAcceptance),                    // L
+      fmt(renouncedRights),                      // M
+      additionalShares ? fmt(additionalShares) : '', // N
+      fmt(acceptedAndPaidFor),                   // O
+      formData.name || '',                       // P
+      fmt(value),                                // Q
+      amountPaid ? fmt(amountPaid) : '',         // R
+      fmt(verified),                             // S
+      paymentMethod,                             // T
+      surname,                                   // U
+      otherNames,                                // V
+      shareholderAddress,                        // W
+      formData.bank_name_edividend || '',        // X
+      formData.account_number || '',             // Y
+      date,                                      // Z
+      paymentConfirmation,                       // AA
+    ];
+
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: 'Sheet1!A:AA',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    });
+
+    console.log(`Google Sheets: row appended for submission #${submissionData.id}`);
+  } catch (err) {
+    console.error('Google Sheets append failed:', err.message);
+    // Non-fatal — submission must not fail because of this
+  }
+}
+
+module.exports = { appendSubmissionToSheet };

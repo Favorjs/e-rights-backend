@@ -195,7 +195,7 @@ const initDatabase = async () => {
         balance_after_delta NUMERIC(15,2),
         approving_officer_id INTEGER,
         transaction_type VARCHAR(20) CHECK (transaction_type IN ('CREATE', 'CREDIT', 'DEBIT')),
-        transaction_ref TEXT,
+        transaction_ref TEXT UNIQUE,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         summary TEXT,
         receipt_path TEXT
@@ -219,6 +219,12 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add UNIQUE constraint on wallet_actions.transaction_ref to prevent duplicate payment records
+    await pool.query(`
+      ALTER TABLE wallet_actions
+      ADD CONSTRAINT wallet_actions_transaction_ref_unique UNIQUE (transaction_ref)
+    `).catch(() => { }); // silently skips if constraint already exists
 
     // Add address column if it doesn't exist (for existing databases)
     await pool.query(`
