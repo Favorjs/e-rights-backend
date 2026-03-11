@@ -624,7 +624,7 @@ router.get('/export-rights', async (req, res) => {
 
         const fullAcceptance    = allottedRights === acceptedRights ? acceptedRights : 0; // K
         const partialAcceptance = allottedRights > acceptedRights ? acceptedRights : 0;   // L
-        const renouncedRights   = allottedRights - acceptedRights;                        // M
+        const renouncedRights   = Math.max(0, allottedRights - acceptedRights);            // M — floor at 0, never negative
         const acceptedAndPaidFor = acceptedRights + additionalShares;                     // O
 
         const value      = Math.round(parseFloat(row.amount_payable || 0));  // Q

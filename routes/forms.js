@@ -67,30 +67,23 @@ async function generateRightsPdfBuffer(formData) {
       const { width, height } = page.getSize();
 
       // Use provided position or default to bottom of page
-      let x, y;
+      let x, y, sigWidth, sigHeight;
 
       if (position) {
         x = position.x;
         y = position.y;
+        sigWidth  = position.width  || 120;
+        sigHeight = position.height || 40;
       } else {
-        // Default signature positions for page 2 (where signatures usually go)
-        if (pageIndex === 1) { // Second page (index 1)
-          // Position for first signature
-          x = 100;
-          y = 120;
-        } else {
-          // Fallback position
-          x = 50;
-          y = 100;
-        }
+        x = 100; y = 120; sigWidth = 120; sigHeight = 40;
       }
 
-      // Draw the signature image
+      // Draw the signature image exactly within its PDF field bounds
       page.drawImage(embeddedImage, {
-        x: x,
-        y: y,
-        width: 120, // Standard signature width
-        height: 40, // Standard signature height
+        x,
+        y,
+        width: sigWidth,
+        height: sigHeight,
       });
 
       console.log(`Signature embedded on page ${pageIndex + 1} at (${x}, ${y})`);
@@ -403,14 +396,14 @@ async function generateRightsPdfBuffer(formData) {
         if (signaturePath) {
           console.log(`Processing signature ${i + 1}: ${signaturePath}`);
 
-          // Define signature positions for page 2 (index 1) where signatures are located
+          // Signature field positions confirmed via inspect-pdf-fields.js
+          // [Signature]:     x=108, y=202, w=178, h=48
+          // [2nd Signature]: x=386, y=203, w=153, h=47
           let position;
           if (i === 0) {
-            // First signature position - matches "Signature" field location
-            position = { x: 70, y: 155 };  // Adjust these coordinates based on your PDF
+            position = { x: 108, y: 202, width: 178, height: 48 };
           } else if (i === 1) {
-            // Second signature position - matches "2nd Signature" field location
-            position = { x: 320, y: 155 };  // Adjust these coordinates based on your PDF
+            position = { x: 386, y: 203, width: 153, height: 47 };
           }
 
           // Embed on page 2 (index 1) where signature fields are

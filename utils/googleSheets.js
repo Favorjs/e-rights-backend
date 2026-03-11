@@ -69,7 +69,7 @@ async function appendSubmissionToSheet(formData, submissionData) {
 
     const fullAcceptance     = allottedRights === acceptedRights ? acceptedRights : 0;
     const partialAcceptance  = allottedRights > acceptedRights  ? acceptedRights : 0;
-    const renouncedRights    = allottedRights - acceptedRights;
+    const renouncedRights    = Math.max(0, allottedRights - acceptedRights); // floor at 0, never negative
     const acceptedAndPaidFor = acceptedRights + additionalShares;
 
     const value      = Math.round(parseFloat(formData.amount_payable || 0));
