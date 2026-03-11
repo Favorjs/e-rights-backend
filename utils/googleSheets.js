@@ -1,15 +1,24 @@
 const { google } = require('googleapis');
 const path = require('path');
+const fs = require('fs');
 const pool = require('../config/database');
 
-const CREDENTIALS_PATH = path.join(__dirname, '../google-credentials.json');
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 function getAuth() {
-  return new google.auth.GoogleAuth({
-    keyFile: CREDENTIALS_PATH,
-    scopes: SCOPES,
-  });
+  // Production: credentials supplied as a JSON string env var (no file needed on disk)
+  if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    return new google.auth.GoogleAuth({ credentials, scopes: SCOPES });
+  }
+
+  // Local development: fall back to the credentials file if it exists
+  const credFile = path.join(__dirname, '../google-credentials.json');
+  if (fs.existsSync(credFile)) {
+    return new google.auth.GoogleAuth({ keyFile: credFile, scopes: SCOPES });
+  }
+
+  throw new Error('No Google credentials found. Set GOOGLE_CREDENTIALS_JSON env var or provide google-credentials.json');
 }
 
 const fmt = (n) =>
