@@ -13,7 +13,7 @@ const { appendSubmissionToSheet } = require('../utils/googleSheets');
 
 // Number formatting helpers used when embedding values into PDF fields
 const fmtShares = (n) => (n == null || n === '') ? '' : Math.round(Number(n)).toLocaleString('en-NG');
-const fmtMoney  = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtMoney = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Helper: generate filled rights PDF as Buffer from provided fields
 // Helper: generate filled rights PDF as Buffer from provided fields
@@ -72,7 +72,7 @@ async function generateRightsPdfBuffer(formData) {
       if (position) {
         x = position.x;
         y = position.y;
-        sigWidth  = position.width  || 120;
+        sigWidth = position.width || 120;
         sigHeight = position.height || 40;
       } else {
         x = 100; y = 120; sigWidth = 120; sigHeight = 40;
@@ -1002,7 +1002,7 @@ router.post('/submit-rights', async (req, res) => {
       }
 
       formData.amount_payable = (amountDue + additionalAmount).toFixed(2);
-      formData.shares_accepted = safeNumber(formData.rights_issue) + additionalShares;
+      formData.shares_accepted = safeNumber(formData.rights_issue);
       formData.shares_renounced = 0;
 
     } else if (formData.action_type === 'renunciation_partial') {

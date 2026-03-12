@@ -618,22 +618,27 @@ router.get('/export-rights', async (req, res) => {
         const otherNames = nameParts.slice(1).join(' ');
 
         // Column calculations matching Excel formulas (kept as raw numbers for arithmetic)
-        const allottedRights   = Math.round(parseFloat(row.rights_issue || 0));      // I
-        const acceptedRights   = Math.round(parseFloat(row.shares_accepted || 0));   // J
+        const allottedRights = Math.round(parseFloat(row.rights_issue || 0));      // I
+        let acceptedRights = Math.round(parseFloat(row.shares_accepted || 0));   // J
         const additionalShares = Math.round(parseFloat(row.additional_shares || 0)); // N
 
-        const fullAcceptance    = allottedRights === acceptedRights ? acceptedRights : 0; // K
+        // If full acceptance, accepted rights (allotted portion) should equal allotted rights
+        if (row.action_type === 'full_acceptance') {
+          acceptedRights = allottedRights;
+        }
+
+        const fullAcceptance = allottedRights === acceptedRights ? acceptedRights : 0; // K
         const partialAcceptance = allottedRights > acceptedRights ? acceptedRights : 0;   // L
-        const renouncedRights   = Math.max(0, allottedRights - acceptedRights);            // M — floor at 0, never negative
+        const renouncedRights = Math.max(0, allottedRights - acceptedRights);            // M — floor at 0, never negative
         const acceptedAndPaidFor = acceptedRights + additionalShares;                     // O
 
-        const value      = Math.round(parseFloat(row.amount_payable || 0));  // Q
+        const value = Math.round(parseFloat(row.amount_payable || 0));  // Q
         const amountPaid = Math.round(parseFloat(row.payment_amount || 0));  // R
-        const verified   = amountPaid > 0 ? amountPaid : value;              // S
+        const verified = amountPaid > 0 ? amountPaid : value;              // S
 
         const paymentConfirmation = row.status === 'completed' ? 'CONFIRMED'
           : row.payment_status === 'successful' ? 'CONFIRMED'
-          : 'PENDING';
+            : 'PENDING';
 
         const date = row.created_at
           ? new Date(row.created_at).toLocaleDateString('en-GB').replace(/\//g, '.')
