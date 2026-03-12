@@ -609,6 +609,11 @@ router.get('/export-rights', async (req, res) => {
         ? ''
         : Math.round(Number(n)).toLocaleString('en-NG');
 
+      // Format a number with 2 decimal places and comma thousands separator
+      const fmtMoney = (n) => n === '' || n === null || n === undefined
+        ? ''
+        : Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
       const csvHeader = csvHeaders.join(',') + '\n';
 
       const csvData = result.rows.map((row, index) => {
@@ -632,9 +637,9 @@ router.get('/export-rights', async (req, res) => {
         const renouncedRights = Math.max(0, allottedRights - acceptedRights);            // M — floor at 0, never negative
         const acceptedAndPaidFor = acceptedRights + additionalShares;                     // O
 
-        const value = Math.round(parseFloat(row.amount_payable || 0));  // Q
-        const amountPaid = Math.round(parseFloat(row.payment_amount || 0));  // R
-        const verified = amountPaid > 0 ? amountPaid : value;              // S
+        const value = parseFloat(row.amount_payable || 0);  // Q
+        const amountPaid = parseFloat(row.payment_amount || 0);  // R
+        const verified = amountPaid > 0 ? amountPaid : value;  // S
 
         const paymentConfirmation = row.status === 'completed' ? 'CONFIRMED'
           : row.payment_status === 'successful' ? 'CONFIRMED'
@@ -661,9 +666,9 @@ router.get('/export-rights', async (req, res) => {
           additionalShares ? fmt(additionalShares) : '',  // N
           fmt(acceptedAndPaidFor),                        // O
           row.name || '',                                 // P
-          fmt(value),                                     // Q
-          amountPaid ? fmt(amountPaid) : '',              // R
-          fmt(verified),                                  // S
+          fmtMoney(value),                                     // Q
+          amountPaid ? fmtMoney(amountPaid) : '',              // R
+          fmtMoney(verified),                                  // S
           row.payment_method || 'TRANSFER',               // T
           surname,                                        // U
           otherNames,                                     // V
