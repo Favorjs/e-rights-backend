@@ -26,6 +26,11 @@ const fmt = (n) =>
     ? ''
     : Math.round(Number(n)).toLocaleString('en-NG');
 
+const fmtMoney = (n) =>
+  n === '' || n === null || n === undefined
+    ? ''
+    : Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 /**
  * Appends one row to the Google Sheet after a successful submission.
  * Columns mirror the admin CSV export exactly (A–AA).
@@ -45,7 +50,7 @@ async function appendSubmissionToSheet(formData, submissionData) {
       try {
         const r = await pool.query('SELECT name FROM stockbrokers WHERE id = $1', [formData.stockbroker]);
         if (r.rows.length > 0) stockbrokerName = r.rows[0].name || '';
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Resolve shareholder address
@@ -54,27 +59,32 @@ async function appendSubmissionToSheet(formData, submissionData) {
       try {
         const r = await pool.query('SELECT address FROM shareholders WHERE id = $1', [formData.shareholder_id]);
         if (r.rows.length > 0) shareholderAddress = r.rows[0].address || '';
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Name split
     const nameParts = (formData.name || '').trim().split(/\s+/);
-    const surname    = nameParts[0] || '';
+    const surname = nameParts[0] || '';
     const otherNames = nameParts.slice(1).join(' ');
 
     // Column calculations (matching the CSV export logic)
-    const allottedRights    = Math.round(parseFloat(formData.rights_issue   || 0));
-    const acceptedRights    = Math.round(parseFloat(formData.shares_accepted || 0));
-    const additionalShares  = Math.round(parseFloat(formData.additional_shares || 0));
+    const allottedRights = Math.round(parseFloat(formData.rights_issue || 0));
+    let acceptedRights = Math.round(parseFloat(formData.shares_accepted || 0));
+    const additionalShares = Math.round(parseFloat(formData.additional_shares || 0));
 
-    const fullAcceptance     = allottedRights === acceptedRights ? acceptedRights : 0;
-    const partialAcceptance  = allottedRights > acceptedRights  ? acceptedRights : 0;
-    const renouncedRights    = Math.max(0, allottedRights - acceptedRights); // floor at 0, never negative
+    // Fix: If full acceptance, accepted rights should equal allotted rights
+    if (formData.action_type === 'full_acceptance') {
+      acceptedRights = allottedRights;
+    }
+
+    const fullAcceptance = allottedRights === acceptedRights ? acceptedRights : 0;
+    const partialAcceptance = allottedRights > acceptedRights ? acceptedRights : 0;
+    const renouncedRights = Math.max(0, allottedRights - acceptedRights); // floor at 0, never negative
     const acceptedAndPaidFor = acceptedRights + additionalShares;
 
-    const value      = Math.round(parseFloat(formData.amount_payable || 0));
-    const amountPaid = Math.round(parseFloat(formData.payment_amount || 0));
-    const verified   = amountPaid > 0 ? amountPaid : value;
+    const value = parseFloat(formData.amount_payable || 0);
+    const amountPaid = parseFloat(formData.payment_amount || 0);
+    const verified = amountPaid > 0 ? amountPaid : value;
 
     const paymentMethod =
       formData.additional_payment_cheque_number || formData.partial_payment_cheque_number
@@ -104,9 +114,9 @@ async function appendSubmissionToSheet(formData, submissionData) {
       additionalShares ? fmt(additionalShares) : '', // N
       fmt(acceptedAndPaidFor),                   // O
       formData.name || '',                       // P
-      fmt(value),                                // Q
-      amountPaid ? fmt(amountPaid) : '',         // R
-      fmt(verified),                             // S
+      fmtMoney(value),                           // Q
+      amountPaid ? fmtMoney(amountPaid) : '',    // R
+      fmtMoney(verified),                        // S
       paymentMethod,                             // T
       surname,                                   // U
       otherNames,                                // V
