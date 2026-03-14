@@ -4,6 +4,7 @@ const paymentService = require('../services/paymentService');
 const { mailgunEmailService } = require('../services/emailService');
 
 const pool = require('../config/database');
+const { updateSheetPaymentStatus } = require('../utils/googleSheets');
 
 class WalletController {
 
@@ -335,7 +336,7 @@ router.post('/public/verify', async (req, res) => {
           const uniqueTxRef = `${txRef}-${Date.now()}`;
           await client.query(
             `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (transaction_ref) DO NOTHING`,
+             VALUES ($1, $2, $3, $4, $5, $6)`,
             [1, amountReceived, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
           );
 
@@ -353,6 +354,11 @@ router.post('/public/verify', async (req, res) => {
             );
           }
           await client.query('COMMIT');
+
+          // Update Google Sheet column AA to CONFIRMED
+          if (submissionId && (dbStatus === 'VERIFIED' || dbStatus === 'OVERPAID')) {
+            updateSheetPaymentStatus(submissionId);
+          }
         }
       } catch (dbError) {
         await client.query('ROLLBACK');
@@ -488,7 +494,7 @@ router.post('/public/webhook', async (req, res) => {
           const uniqueTxRef = `${txRef}-${Date.now()}`;
           await client.query(
             `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (transaction_ref) DO NOTHING`,
+             VALUES ($1, $2, $3, $4, $5, $6)`,
             [1, amountReceived, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
           );
 
@@ -505,6 +511,11 @@ router.post('/public/webhook', async (req, res) => {
                [submissionPaymentStatus, new Date(), new Date(), sub.rows[0].id]);
           }
           await client.query('COMMIT');
+
+          // Update Google Sheet column AA to CONFIRMED
+          if (sub.rows.length > 0 && (dbStatus === 'VERIFIED' || dbStatus === 'OVERPAID')) {
+            updateSheetPaymentStatus(sub.rows[0].id);
+          }
 
           const email = sub.rows[0]?.email || transaction.email;
           const name = sub.rows[0]?.name || transaction.shareholder_name;

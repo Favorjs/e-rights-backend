@@ -145,4 +145,52 @@ async function appendSubmissionToSheet(formData, submissionData) {
   }
 }
 
-module.exports = { appendSubmissionToSheet };
+/**
+ * Finds the row for the given submission ID (column C) and updates
+ * column AA (payment confirmation) to CONFIRMED.
+ * Non-fatal: logs errors but never throws.
+ */
+async function updateSheetPaymentStatus(submissionId) {
+  try {
+    const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!spreadsheetId) return;
+
+    const auth = getAuth();
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Read column C to find the row that matches submissionId
+    const readRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Sheet1!C:C',
+    });
+
+    const rows = readRes.data.values || [];
+    // rows[0] is the header row; submission IDs start at index 1
+    let targetRowIndex = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(submissionId)) {
+        targetRowIndex = i + 1; // Sheets rows are 1-indexed
+        break;
+      }
+    }
+
+    if (targetRowIndex === -1) {
+      console.warn(`Google Sheets: no row found for submission #${submissionId}`);
+      return;
+    }
+
+    // Update column AA on that row
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `Sheet1!AA${targetRowIndex}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [['CONFIRMED']] },
+    });
+
+    console.log(`Google Sheets: payment confirmation updated to CONFIRMED for submission #${submissionId} (row ${targetRowIndex})`);
+  } catch (err) {
+    console.error('Google Sheets update failed:', err.message);
+  }
+}
+
+module.exports = { appendSubmissionToSheet, updateSheetPaymentStatus };
