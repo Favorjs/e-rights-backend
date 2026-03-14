@@ -384,7 +384,7 @@ router.post('/public/verify', async (req, res) => {
                 principalAmount: principalGoal,
                 processorFee: fees,
                 expectedTotal: baseAmount,
-                amountReceived: newTotal,
+                amountReceived: newGross,
                 balancePayable: Math.max(0, principalGoal - newTotal),
                 paymentDate: new Date().toLocaleString()
             });
@@ -526,7 +526,7 @@ router.post('/public/webhook', async (req, res) => {
              if (varianceType === 'exact') {
                  mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: newTotal, processorFee: fees, paymentDate: new Date().toLocaleString() });
              } else if (varianceType === 'underpaid') {
-                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: fees, expectedTotal: baseAmount, amountReceived: newTotal, balancePayable: Math.max(0, principalGoal - newTotal), paymentDate: new Date().toLocaleString() });
+                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: fees, expectedTotal: baseAmount, amountReceived: newGross, balancePayable: Math.max(0, principalGoal - newTotal), paymentDate: new Date().toLocaleString() });
              }
           }
         }
