@@ -320,7 +320,7 @@ router.post('/public/verify', async (req, res) => {
         await client.query('BEGIN');
         
         const locked = await client.query(
-          'SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE',
+          'SELECT status, metadata FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE',
           [txRef]
         );
 
@@ -328,9 +328,26 @@ router.post('/public/verify', async (req, res) => {
            await client.query('ROLLBACK');
            return res.json({ success: true, paymentStatus: locked.rows[0].status }); // Already processed
         } else {
+          // Build payment history — append this event to any existing history
+          const existingMeta = locked.rows[0]?.metadata || {};
+          const previousHistory = Array.isArray(existingMeta.payment_history) ? existingMeta.payment_history : [];
+          const newMeta = {
+            payment_history: [
+              ...previousHistory,
+              {
+                status: dbStatus,
+                gross_received: newGross,
+                net_received: newTotal,
+                amount_credited: amountReceived,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+            vetropay: data,
+          };
+
           await client.query(
             'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3, gross_amount_received = $5, metadata = $6 WHERE transaction_ref = $4',
-            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(data)]
+            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(newMeta)]
           );
 
           const uniqueTxRef = `${txRef}-${Date.now()}`;
@@ -481,14 +498,30 @@ router.post('/public/webhook', async (req, res) => {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const locked = await client.query('SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE', [txRef]);
+        const locked = await client.query('SELECT status, metadata FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE', [txRef]);
 
         if (TERMINAL_STATUSES.includes(locked.rows[0]?.status)) {
            await client.query('ROLLBACK');
         } else {
+          const existingMeta = locked.rows[0]?.metadata || {};
+          const previousHistory = Array.isArray(existingMeta.payment_history) ? existingMeta.payment_history : [];
+          const newMeta = {
+            payment_history: [
+              ...previousHistory,
+              {
+                status: dbStatus,
+                gross_received: newGross,
+                net_received: newTotal,
+                amount_credited: amountReceived,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+            vetropay: data,
+          };
+
           await client.query(
             'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3, gross_amount_received = $5, metadata = $6 WHERE transaction_ref = $4',
-            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(data)]
+            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(newMeta)]
           );
 
           const uniqueTxRef = `${txRef}-${Date.now()}`;
