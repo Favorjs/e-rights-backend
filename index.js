@@ -134,6 +134,9 @@ const PORT = process.env.PORT || 5000;
 // }
 
 // sendSimpleMessage();
+// Background Jobs
+const processProofRequests = require('./scripts/processProofRequests');
+
 // Initialize database and start server
 const startServer = async () => {
   try {
@@ -141,17 +144,18 @@ const startServer = async () => {
     await initDatabase();
     console.log('Database initialized successfully');
 
+    // Run background jobs on startup
+    processProofRequests().catch(err => console.error('Initial background job failed:', err));
+
+    // Schedule background jobs (every hour)
+    setInterval(() => {
+      processProofRequests().catch(err => console.error('Scheduled background job failed:', err));
+    }, 60 * 60 * 1000);
+
     // Start server
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`API available at: http://localhost:${PORT}/api`);
-      console.log('CORS enabled for origins:', [
-        'http://localhost:3000',
-        'http://localhost:5000',
-        'https://linkage.apel.com.ng',
-        'https://www.linkage.apel.com.ng'
-      ]);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

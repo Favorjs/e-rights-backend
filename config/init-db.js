@@ -177,7 +177,7 @@ const initDatabase = async () => {
       CREATE TABLE IF NOT EXISTS wallets (
         id SERIAL PRIMARY KEY,
         user_id INTEGER, -- Can be NULL for public users
-        shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE,
+        shareholder_id INTEGER REFERENCES shareholders(id) ON DELETE CASCADE UNIQUE,
         balance NUMERIC(15,2) DEFAULT 0.00,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -279,7 +279,11 @@ const initDatabase = async () => {
     // Add amount_received column to track actual payment received from VetroPay
     await pool.query(`
       ALTER TABLE dynamic_nuban_accounts
-      ADD COLUMN IF NOT EXISTS amount_received NUMERIC(15,2)
+      ADD COLUMN IF NOT EXISTS amount_received NUMERIC(15,2),
+      ADD COLUMN IF NOT EXISTS metadata JSONB,
+      ADD COLUMN IF NOT EXISTS principal_amount NUMERIC(15,2),
+      ADD COLUMN IF NOT EXISTS proof_requested_at TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS gross_amount_received NUMERIC(15,2)
     `).catch(() => { });
 
     // Extend rights_submissions payment_status to support overpaid and underpaid
@@ -309,6 +313,12 @@ const initDatabase = async () => {
       VALUES ($1, $2)
       ON CONFLICT (email) DO NOTHING
     `, ['$2a$10$rQZ8K9mX2nL1vP3qR5sT7u', 'fadebowale@apelasset.com']);
+
+    // Add UNIQUE constraint on wallets.shareholder_id
+    await pool.query(`
+      ALTER TABLE wallets
+      ADD CONSTRAINT wallets_shareholder_id_unique UNIQUE (shareholder_id)
+    `).catch(() => { });
 
     console.log('Database initialized successfully');
   } catch (error) {

@@ -773,10 +773,10 @@ class MailgunEmailService {
   }
 
   // Send underpayment notification (shareholder + admin)
-  async sendUnderpaymentEmail({ email, name, transactionRef, amountExpected, amountReceived, balance, paymentDate }) {
+  async sendUnderpaymentEmail({ email, name, transactionRef, principalAmount, processorFee, expectedTotal, amountReceived, balancePayable, paymentDate }) {
     const subject = 'Incomplete Payment — Balance Required | Linkage Assurance Plc Rights Issue';
     const adminEmail = process.env.ADMIN_EMAIL;
-    const fmt = (n) => parseFloat(n).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+    const fmt = (n) => parseFloat(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
 
     const html = `
     <!DOCTYPE html>
@@ -809,44 +809,38 @@ class MailgunEmailService {
                     Dear <strong>${name || 'Valued Shareholder'}</strong>,
                   </p>
                   <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 32px;">
-                    We received a payment for your Linkage Assurance Plc Rights Issue application, but the amount sent is <strong>less than the required amount</strong>. Your application cannot be fully processed until the outstanding balance is paid.
+                    We received a partial payment for your Rights Issue application. However, there is still an outstanding balance.
                   </p>
 
                   <!-- Variance Box -->
                   <div style="background-color:#fef2f2;border:1px solid #fee2e2;border-radius:16px;overflow:hidden;margin-bottom:32px;">
-                    <div style="padding:20px 24px;border-bottom:1px dashed #fee2e2;">
-                      <p style="color:#991b1b;font-size:11px;font-weight:700;text-transform:uppercase;margin:0 0 4px;">Transaction Reference</p>
-                      <p style="color:#1c1917;font-size:15px;font-weight:700;font-family:monospace;margin:0;">${transactionRef}</p>
-                    </div>
                     <div style="padding:24px;">
                       <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                         <tr>
-                          <td style="padding:8px 0;font-size:14px;color:#991b1b;">Amount Required</td>
-                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(amountExpected)}</td>
+                          <td style="padding:8px 0;font-size:14px;color:#991b1b;">Amount Payable</td>
+                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(principalAmount)}</td>
                         </tr>
                         <tr>
-                          <td style="padding:8px 0;font-size:14px;color:#991b1b;">Amount Received</td>
-                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(amountReceived)}</td>
+                          <td style="padding:8px 0;font-size:14px;color:#991b1b;">Processor Fee</td>
+                          <td style="padding:8px 0;font-size:14px;color:#1c1917;font-weight:600;text-align:right;">₦${fmt(processorFee)}</td>
+                        </tr>
+                        <tr style="border-top:1px dashed #fee2e2;">
+                          <td style="padding:12px 0;font-size:14px;color:#991b1b;font-weight:700;">Expected Total</td>
+                          <td style="padding:12px 0;font-size:16px;color:#1c1917;font-weight:700;text-align:right;">₦${fmt(expectedTotal)}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:8px 0;font-size:14px;color:#059669;font-weight:700;">Amount Received (Total)</td>
+                          <td style="padding:8px 0;font-size:14px;color:#059669;font-weight:700;text-align:right;">₦${fmt(amountReceived)}</td>
                         </tr>
                         <tr style="border-top:2px solid #fee2e2;">
-                          <td style="padding:16px 0 0;font-size:15px;color:#991b1b;font-weight:700;">Balance to Pay</td>
-                          <td style="padding:16px 0 0;font-size:28px;color:#dc2626;font-weight:800;text-align:right;">₦${fmt(balance)}</td>
+                          <td style="padding:16px 0 0;font-size:15px;color:#991b1b;font-weight:700;">Balance Payable</td>
+                          <td style="padding:16px 0 0;font-size:28px;color:#dc2626;font-weight:800;text-align:right;">₦${fmt(balancePayable)}</td>
                         </tr>
                       </table>
                     </div>
                   </div>
 
-                  <!-- Action Required Box -->
-                  <div style="background-color:#fff7ed;border-left:4px solid #f97316;padding:20px;border-radius:4px;margin-bottom:24px;">
-                    <p style="color:#9a3412;font-size:13px;font-weight:700;margin:0 0 8px;">Action Required</p>
-                    <ul style="color:#c2410c;font-size:13px;margin:0;padding-left:20px;line-height:1.8;">
-                      <li>Please log back into the portal and pay the outstanding balance of <strong>₦${fmt(balance)}</strong>.</li>
-                      <li>Your application will be held pending receipt of the full balance.</li>
-                      <li>If the balance is not received before the offer closes, your partial payment will be subject to the issuer's reconciliation policy.</li>
-                    </ul>
-                  </div>
-
-                  <p style="color:#94a3b8;font-size:12px;margin:0;text-align:center;">Payment Date: ${paymentDate}</p>
+                  <p style="color:#64748b;font-size:12px;margin:0 0 16px;">Reference: ${transactionRef} | Date: ${paymentDate}</p>
                 </td>
               </tr>
 
@@ -869,7 +863,6 @@ class MailgunEmailService {
     const recipients = [email, adminEmail].filter(Boolean);
     try {
       const result = await this.sendEmail(recipients.join(','), subject, html);
-      console.log('Underpayment email sent to:', recipients.join(', '));
       return result;
     } catch (error) {
       console.error('Failed to send underpayment email:', error);
@@ -880,6 +873,107 @@ class MailgunEmailService {
   // Generic email sending method for custom emails
   async sendCustomEmail(to, subject, html, attachments = []) {
     return await this.sendEmail(to, subject, html, attachments);
+  }
+
+  // Send request for proof of payment (fraud prevention)
+  async sendProofOfPaymentRequest({ email, name, transactionRef, amount, accountNo, bankingPartner, createdAt }) {
+    const subject = `Urgent: Proof of Payment Required - Ref: ${transactionRef}`;
+    const fmt = (n) => parseFloat(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+    const formattedDate = new Date(createdAt).toLocaleString();
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9;">
+        <tr>
+          <td align="center" style="padding:40px 10px;">
+            <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+
+              <!-- Header -->
+              <tr>
+                <td style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);padding:48px 40px;text-align:center;">
+                  <div style="background-color:#f59e0b;width:64px;height:64px;border-radius:32px;margin:0 auto 24px;display:table;">
+                    <span style="display:table-cell;vertical-align:middle;color:#ffffff;font-size:32px;font-weight:bold;">?</span>
+                  </div>
+                  <h1 style="color:#ffffff;font-size:22px;margin:0;font-weight:800;">Verification Pending</h1>
+                  <p style="color:#94a3b8;font-size:13px;margin:8px 0 0;text-transform:uppercase;font-weight:700;letter-spacing:0.1em;">Action Required: Proof of Payment</p>
+                </td>
+              </tr>
+
+              <!-- Content -->
+              <tr>
+                <td style="padding:40px;">
+                  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
+                    Dear <strong>${name || 'Valued Shareholder'}</strong>,
+                  </p>
+                  <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 32px;">
+                    Our records show that you initiated a payment for the Linkage Assurance Plc Rights Issue on <strong>${formattedDate}</strong>, but the transaction remains unverified.
+                  </p>
+
+                  <div style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px;margin-bottom:32px;">
+                    <h3 style="color:#0f172a;font-size:12px;font-weight:700;text-transform:uppercase;margin:0 0 16px;border-bottom:1px solid #e2e8f0;padding-bottom:12px;">Payment Details</h3>
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="padding:8px 0;font-size:13px;color:#64748b;">Reference</td>
+                        <td style="padding:8px 0;font-size:13px;color:#0f172a;font-weight:700;text-align:right;">${transactionRef}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;font-size:13px;color:#64748b;">Amount</td>
+                        <td style="padding:8px 0;font-size:13px;color:#0f172a;font-weight:700;text-align:right;">₦${fmt(amount)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:8px 0;font-size:13px;color:#64748b;">Paid To</td>
+                        <td style="padding:8px 0;font-size:13px;color:#0f172a;font-weight:700;text-align:right;">${accountNo} (${bankingPartner})</td>
+                      </tr>
+                    </table>
+                  </div>
+
+                  <div style="background-color:#fef2f2;border:1px solid #fee2e2;border-radius:12px;padding:24px;margin-bottom:32px;">
+                    <h3 style="color:#991b1b;font-size:14px;font-weight:700;margin:0 0 12px;">What is required?</h3>
+                    <p style="color:#b91c1c;font-size:14px;line-height:1.6;margin:0;">
+                      If you have made this payment, please reply directly to this email with:
+                    </p>
+                    <ul style="color:#b91c1c;font-size:14px;margin:12px 0 0;padding-left:20px;">
+                      <li>A clear screenshot of the <strong>Payment Receipt</strong>.</li>
+                      <li>The <strong>Session ID</strong> or <strong>Transaction ID</strong> from your bank app.</li>
+                    </ul>
+                  </div>
+
+                  <p style="color:#64748b;font-size:13px;line-height:1.6;text-align:center;">
+                    If you did not complete this payment, you can ignore this email. Your subscription will only be processed once valid payment is confirmed.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color:#f8fafc;padding:32px;text-align:center;border-top:1px solid #f1f5f9;">
+                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">Linkage Assurance Plc</p>
+                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                </td>
+              </tr>
+
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+    `;
+
+    try {
+      const result = await this.sendEmail(email, subject, html);
+      console.log('Proof of payment request sent to', email);
+      return result;
+    } catch (error) {
+      console.error('Failed to send proof of payment request:', error);
+      return { success: false, error: error.message };
+    }
   }
 }
 

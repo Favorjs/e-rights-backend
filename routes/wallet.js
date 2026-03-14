@@ -46,7 +46,7 @@ class WalletController {
         `, [user.id, limit, offset]);
 
       if (result.rows.length === 0) {
-        emitter.emit('createUserWallet', user.id);
+        // emitter.emit('createUserWallet', user.id); // emitter is not defined here
         return res.json({
           status: true,
           message: "Wallet is being initialized. Please refresh in a moment.",
@@ -68,12 +68,12 @@ class WalletController {
       if (!amount || isNaN(amount) || amount <= 0) {
         return res.status(400).json({ error: 'Valid deposit amount is required' });
       }
-      const txRef = `MMF-${Date.now()}-${user.id}`;
+      const txRef = `E-RIGHTS-${Date.now()}-${user.id}`;
       const result = await paymentService.generateDynamic(txRef, amount);
       if (result.status === 'success') {
         await pool.query(
-          'INSERT INTO dynamic_nuban_accounts (user_id, transaction_ref, status, account_number, banking_partner, amount, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-          [user.id, txRef, 'INITIALIZED', result.data.accountNo, result.data.bankingPartner, amount.toString(), new Date()]
+          'INSERT INTO dynamic_nuban_accounts (user_id, transaction_ref, status, account_number, banking_partner, amount, created_at, principal_amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+          [user.id, txRef, 'INITIALIZED', result.data.accountNo, result.data.bankingPartner, (result.data.amountToDeposit || amount).toString(), new Date(), amount.toString()]
         );
         return res.status(200).json({ success: true, data: { ...result.data, txRef } });
       }
@@ -89,13 +89,10 @@ class WalletController {
       const { txRef } = req.body;
       const user_id = req.user.id;
 
-
       const existingTransaction = await pool.query(
         "SELECT * FROM dynamic_nuban_accounts WHERE transaction_ref = $1",
         [txRef]
       );
-
-
 
       if (!existingTransaction.rows.length) {
         return res.status(404).json({ success: false, message: "Transaction not found" });
@@ -104,16 +101,22 @@ class WalletController {
       if (transaction.status === 'VERIFIED') {
         return res.json({ success: true, message: "Transaction already processed", verified: true, data: transaction });
       }
-      // const queryResult = await paymentService.queryDynamic(txRef);
-      const queryResult = await paymentService.queryDynamic("adQbma04551");
+      const queryResult = await paymentService.queryDynamic(txRef);
       if (queryResult.status === 'success' && queryResult.data?.paymentReceived === true) {
-        await pool.query('UPDATE dynamic_nuban_accounts SET status = $1, response = $2 WHERE transaction_ref = $3',
-          ['VERIFIED', JSON.stringify(queryResult), txRef]);
-        emitter.emit("creditUserWallet", {
-          req, user_id, amount: transaction.amount,
-          description: `Deposit via Dynamic Account: ${transaction.account_number}`,
-          involvedLedgerId: 1, transaction_ref: txRef,
-        });
+        const amountReceived = parseFloat(queryResult.data.amount || queryResult.data.amountReceived || 0) + 
+                               parseFloat(queryResult.data.chargeAmount || queryResult.data.fee || 0);
+
+        await pool.query('UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = COALESCE(amount_received, 0) + $3, metadata = $5 WHERE transaction_ref = $4',
+          ['VERIFIED', JSON.stringify(queryResult), amountReceived, txRef, JSON.stringify(queryResult.data)]);
+        
+        // Assuming emitter exists globally or is imported
+        if (global.emitter) {
+            global.emitter.emit("creditUserWallet", {
+                req, user_id, amount: amountReceived,
+                description: `Deposit via Dynamic Account: ${transaction.account_number}`,
+                involvedLedgerId: 1, transaction_ref: txRef,
+            });
+        }
         return res.status(200).json({ success: true, message: 'Payment verified!', paymentReceived: true });
       }
       return res.status(200).json({ success: true, message: 'Payment pending', paymentReceived: false });
@@ -151,11 +154,14 @@ class WalletController {
       const transaction = accountRows.rows[0];
       if (transaction.status === 'VERIFIED') return res.status(200).json({ success: true, message: 'Already verified' });
       await pool.query("UPDATE dynamic_nuban_accounts SET status = 'VERIFIED' WHERE id = $1", [transaction.id]);
-      emitter.emit("creditUserWallet", {
-        req, user_id: transaction.user_id, amount: transaction.amount,
-        description: `Manual verification - ${transactionRef}`,
-        involvedLedgerId: 1, transaction_ref: transactionRef,
-      });
+      
+      if (global.emitter) {
+          global.emitter.emit("creditUserWallet", {
+            req, user_id: transaction.user_id, amount: transaction.amount_received || transaction.amount,
+            description: `Manual verification - ${transactionRef}`,
+            involvedLedgerId: 1, transaction_ref: transactionRef,
+          });
+      }
       return res.status(200).json({ success: true, message: 'Manually verified' });
     } catch (error) {
       console.error('Manual verification error:', error);
@@ -166,7 +172,6 @@ class WalletController {
 
 const controller = new WalletController();
 
-// Authentication middleware (mock or real)
 const authenticate = (req, res, next) => {
   if (req.user) return next();
   return res.status(401).json({ error: 'Unauthorized' });
@@ -176,21 +181,44 @@ const authenticate = (req, res, next) => {
 
 router.post('/public/generate-account', async (req, res) => {
   try {
-    const { amount, shareholder_id } = req.body;
+    const { amount, shareholder_id, email, name } = req.body;
+    console.log('Generating account for:', { amount, shareholder_id, email, name });
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ error: 'Valid deposit amount is required' });
     }
 
-    const txRef = `E-RIGHTS-${Date.now()}-${shareholder_id || 'GUEST'}`;
+    if (shareholder_id) {
+      const existing = await pool.query(
+        `SELECT transaction_ref, account_number, banking_partner, amount, principal_amount
+         FROM dynamic_nuban_accounts
+         WHERE shareholder_id = $1 AND status = 'INITIALIZED' AND CAST(principal_amount AS NUMERIC) = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [shareholder_id, amount]
+      );
+      if (existing.rows.length > 0) {
+        const row = existing.rows[0];
+        return res.status(200).json({
+          success: true,
+          data: {
+            accountNo: row.account_number,
+            bankingPartner: row.banking_partner,
+            txRef: row.transaction_ref,
+            amountToDeposit: row.amount,
+            principalAmount: row.principal_amount
+          }
+        });
+      }
+    }
 
+    const txRef = `E-RIGHTS-${Date.now()}-${shareholder_id || 'GUEST'}`;
     const result = await paymentService.generateDynamic(txRef, amount);
 
     if (result.status === 'success') {
-      // Store account info in database
+      const totalExpected = result.data.amountToDeposit || amount;
       await pool.query(
-        'INSERT INTO dynamic_nuban_accounts (shareholder_id, transaction_ref, status, account_number, banking_partner, amount, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [shareholder_id || null, txRef, 'INITIALIZED', result.data.accountNo, result.data.bankingPartner, amount.toString(), new Date()]
+        'INSERT INTO dynamic_nuban_accounts (shareholder_id, transaction_ref, status, account_number, banking_partner, amount, created_at, principal_amount, email, shareholder_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+        [shareholder_id || null, txRef, 'INITIALIZED', result.data.accountNo, result.data.bankingPartner, totalExpected.toString(), new Date(), amount.toString(), email || null, name || null]
       );
 
       return res.status(200).json({
@@ -198,6 +226,8 @@ router.post('/public/generate-account', async (req, res) => {
         data: {
           ...result.data,
           txRef,
+          amountToDeposit: totalExpected.toString(),
+          principalAmount: amount.toString()
         }
       });
     }
@@ -213,8 +243,6 @@ router.post('/public/verify', async (req, res) => {
   try {
     const { txRef, email, name, submissionId } = req.body;
 
-    console.log('Public verify called with txRef:', txRef, 'email:', email, 'submissionId:', submissionId);
-
     if (!txRef) {
       return res.status(400).json({ error: 'Transaction reference is required' });
     }
@@ -225,122 +253,106 @@ router.post('/public/verify', async (req, res) => {
     );
 
     if (!existingTransaction.rows.length) {
-      console.log('Transaction not found in database:', txRef);
       return res.status(404).json({ success: false, message: "Transaction not found" });
     }
 
     const transaction = existingTransaction.rows[0];
-    console.log('Found transaction:', { txRef, status: transaction.status, amount: transaction.amount });
-
-    // All statuses that mean the transaction has been fully processed — block re-processing
     const TERMINAL_STATUSES = ['VERIFIED', 'OVERPAID', 'UNDERPAID', 'FAILED'];
 
-    if (TERMINAL_STATUSES.includes(transaction.status)) {
-      console.log(`Transaction already in terminal state (${transaction.status}), skipping`);
+    if (TERMINAL_STATUSES.includes(transaction.status) && transaction.status !== 'UNDERPAID') {
+      const baseAmount = parseFloat(transaction.amount);
+      const amountPaid = parseFloat(transaction.amount_received || 0);
+      const balance = transaction.status === 'UNDERPAID' ? Math.max(0, baseAmount - amountPaid) : 0;
+      const excess = transaction.status === 'OVERPAID' ? Math.max(0, amountPaid - baseAmount) : 0;
+
       return res.json({
         success: true,
         paymentReceived: ['VERIFIED', 'OVERPAID'].includes(transaction.status),
         paymentStatus: transaction.status,
+        amountExpected: baseAmount,
+        amountPaid: amountPaid,
+        balance: balance,
+        excess: excess,
+        principalAmount: parseFloat(transaction.principal_amount || baseAmount),
+        processorFee: baseAmount - parseFloat(transaction.principal_amount || baseAmount),
         data: { status: transaction.status, amount: transaction.amount }
       });
     }
 
-    console.log('Querying Vetropay for payment status...');
-    //const queryResult = await paymentService.queryDynamic(txRef);
-    const queryResult = await paymentService.queryDynamic("adQbma04551");
-    console.log('Vetropay response:', JSON.stringify(queryResult, null, 2));
+    const queryResult = await paymentService.queryDynamic(txRef);
+    const data = queryResult.data || {};
+    const shareholderEmail = email || transaction.email;
+    const shareholderName = name || transaction.shareholder_name;
 
-    // Use email and name from request (passed from form step 5)
-    const shareholderEmail = email;
-    const shareholderName = name;
-    const baseAmount = parseFloat(transaction.amount);
-
-    if (queryResult.status === 'success' && queryResult.data?.paymentReceived === true) {
-      console.log('Payment received! Checking amount variance...');
-
-      const amountReceived = parseFloat(queryResult.data?.amountReceived || transaction.amount);
+    if (queryResult.status === 'success' && data?.paymentReceived === true) {
+      const newTotal = parseFloat(data.amount || data.amountReceived || 0); // Total NET received from Vetropay
+      
+      const baseAmount = parseFloat(transaction.amount); // Gross Goal
+      const principalGoal = parseFloat(transaction.principal_amount || baseAmount); // Principal Goal
+      
+      // Calculate Gross using the original fee ratio if not explicitly provided
+      const fees = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
+      let newGross = parseFloat(data.totalPaid || (newTotal + fees));
+      if (fees === 0 && principalGoal > 0) {
+          // If no fees reported, interpolate based on the original request's fee ratio (ExpectedTotal / PrincipalGoal)
+          newGross = newTotal * (baseAmount / principalGoal);
+      }
+      newGross = Math.round(newGross * 100) / 100; // Round for display
+      
+      const previousTotal = parseFloat(transaction.amount_received || 0);
+      const amountReceived = newTotal - previousTotal; // NEW net amount to credit
+      
       const TOLERANCE = 1;
-
       let dbStatus, submissionPaymentStatus, varianceType;
-      const diff = amountReceived - baseAmount;
+      const diff = newTotal - principalGoal;
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
       } else if (diff > TOLERANCE) {
         varianceType = 'overpaid'; dbStatus = 'OVERPAID'; submissionPaymentStatus = 'overpaid';
-        console.log(`Overpayment: received ₦${amountReceived}, expected ₦${baseAmount}, excess ₦${diff.toFixed(2)}`);
       } else {
         varianceType = 'underpaid'; dbStatus = 'UNDERPAID'; submissionPaymentStatus = 'underpaid';
-        console.log(`Underpayment: received ₦${amountReceived}, expected ₦${baseAmount}, balance ₦${Math.abs(diff).toFixed(2)}`);
       }
 
-      const excess = varianceType === 'overpaid' ? diff : 0;
-      const balance = varianceType === 'underpaid' ? Math.abs(diff) : 0;
-
-      // Acquire a row-level lock and perform all DB writes atomically.
-      // The FOR UPDATE re-checks the status under the lock — if a concurrent
-      // request already processed this transaction, we skip gracefully.
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-
+        
         const locked = await client.query(
           'SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE',
           [txRef]
         );
 
-        if (TERMINAL_STATUSES.includes(locked.rows[0]?.status)) {
-          // Another concurrent request beat us to it — nothing to do
-          await client.query('ROLLBACK');
-          console.log('Concurrent request already processed this transaction, skipping');
+        if (TERMINAL_STATUSES.includes(locked.rows[0]?.status) && locked.rows[0]?.status !== 'UNDERPAID') {
+           await client.query('ROLLBACK');
+           return res.json({ success: true, paymentStatus: locked.rows[0].status }); // Already processed
         } else {
-          // 1. Update transaction status
           await client.query(
-            'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
-            [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
+            'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3, gross_amount_received = $5, metadata = $6 WHERE transaction_ref = $4',
+            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(data)]
           );
 
-          // 2. Log to wallet_actions — ON CONFLICT is the last line of defence against duplicates
+          const uniqueTxRef = `${txRef}-${Date.now()}`;
           await client.query(
-            `INSERT INTO wallet_actions
-             (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (transaction_ref) DO NOTHING`,
-            [1, amountReceived, 'CREDIT', txRef,
-             `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
+            `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (transaction_ref) DO NOTHING`,
+            [1, amountReceived, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
           );
 
-          // 3. Update wallet atomically (balance = balance + amount avoids read-modify-write race)
           if (transaction.shareholder_id) {
-            const walletExists = await client.query(
-              'SELECT id FROM wallets WHERE shareholder_id = $1', [transaction.shareholder_id]
+            await client.query(
+              'INSERT INTO wallets (shareholder_id, balance, updated_at) VALUES ($1, $2, $3) ON CONFLICT (shareholder_id) DO UPDATE SET balance = wallets.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at',
+              [transaction.shareholder_id, amountReceived, new Date()]
             );
-            if (walletExists.rows.length > 0) {
-              await client.query(
-                'UPDATE wallets SET balance = balance + $1, updated_at = $2 WHERE shareholder_id = $3',
-                [amountReceived, new Date(), transaction.shareholder_id]
-              );
-            } else {
-              await client.query(
-                'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-                [transaction.shareholder_id, amountReceived, new Date(), new Date()]
-              );
-            }
           }
 
-          // 4. Update rights_submissions if submissionId provided
-          if (submissionId) {
+          if (submissionId && (dbStatus === 'VERIFIED' || dbStatus === 'OVERPAID')) {
             await client.query(
-              `UPDATE rights_submissions
-               SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4
-               WHERE id = $5`,
+              'UPDATE rights_submissions SET payment_status = $1, payment_ref = $2, payment_date = $3, updated_at = $4 WHERE id = $5',
               [submissionPaymentStatus, txRef, new Date(), new Date(), submissionId]
             );
-            console.log(`Updated rights_submissions to '${submissionPaymentStatus}' for ID:`, submissionId);
           }
-
           await client.query('COMMIT');
-          console.log('Transaction committed to wallet_actions');
         }
       } catch (dbError) {
         await client.query('ROLLBACK');
@@ -349,86 +361,53 @@ router.post('/public/verify', async (req, res) => {
         client.release();
       }
 
-      // Send email outside the transaction (non-critical, failures won't roll back payment)
       if (shareholderEmail) {
-        try {
-          if (varianceType === 'exact') {
+        const baseAmount = parseFloat(transaction.amount);
+        const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
+        const fees = baseAmount - principalGoal;
+        
+        if (varianceType === 'exact') {
             await mailgunEmailService.sendPaymentSuccessEmail({
-              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amount: baseAmount, amountPaid: amountReceived, processorFee: 0,
-              paymentDate: new Date().toLocaleString()
+                email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+                amount: principalGoal, amountPaid: newTotal, processorFee: fees,
+                paymentDate: new Date().toLocaleString()
             });
-          } else if (varianceType === 'overpaid') {
-            await mailgunEmailService.sendOverpaymentEmail({
-              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amountExpected: baseAmount, amountReceived, excess,
-              paymentDate: new Date().toLocaleString()
-            });
-          } else if (varianceType === 'underpaid') {
+        } else if (varianceType === 'underpaid') {
             await mailgunEmailService.sendUnderpaymentEmail({
+                email: shareholderEmail, name: shareholderName, transactionRef: txRef,
+                principalAmount: principalGoal,
+                processorFee: fees,
+                expectedTotal: baseAmount,
+                amountReceived: newTotal,
+                balancePayable: Math.max(0, principalGoal - newTotal),
+                paymentDate: new Date().toLocaleString()
+            });
+        } else if (varianceType === 'overpaid') {
+             await mailgunEmailService.sendOverpaymentEmail({
               email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amountExpected: baseAmount, amountReceived, balance,
+              amountExpected: principalGoal, amountReceived: newTotal, excess: diff,
               paymentDate: new Date().toLocaleString()
             });
-          }
-          console.log(`Payment ${varianceType} email sent to:`, shareholderEmail);
-        } catch (emailError) {
-          console.error('Failed to send payment email:', emailError);
         }
       }
 
-      if (varianceType === 'exact' || varianceType === 'overpaid') {
-        return res.json({
-          success: true, paymentReceived: true, paymentStatus: dbStatus,
-          amountExpected: baseAmount, amountPaid: amountReceived,
-          excess: varianceType === 'overpaid' ? excess : 0,
-          data: { status: dbStatus, amount: transaction.amount }
-        });
-      }
-
+      const princ = parseFloat(transaction.principal_amount || baseAmount);
       return res.json({
-        success: true, paymentReceived: false, paymentStatus: 'UNDERPAID',
-        amountExpected: baseAmount, amountPaid: amountReceived, balance,
-        data: { status: 'UNDERPAID', amount: transaction.amount }
+        success: true,
+        paymentReceived: ['VERIFIED', 'OVERPAID'].includes(dbStatus),
+        paymentStatus: dbStatus,
+        amountExpected: baseAmount, // Gross Goal
+        amountPaid: newTotal, // Total Net Received
+        grossReceived: newGross, // Total Gross Received
+        balance: dbStatus === 'UNDERPAID' ? Math.max(0, baseAmount - newTotal) : 0, // Legacy field
+        balancePayable: Math.max(0, princ - newTotal), // Principal Balance
+        principalAmount: princ,
+        processorFee: baseAmount - princ,
+        data: { status: dbStatus }
       });
     }
 
-    // Payment explicitly failed
-    if (queryResult.status === 'failed' || queryResult.data?.status === 'FAILED') {
-      console.log('Payment failed! Updating database...');
-      await pool.query(
-        'UPDATE dynamic_nuban_accounts SET status = $1, response = $2 WHERE transaction_ref = $3',
-        ['FAILED', JSON.stringify(queryResult), txRef]
-      );
-      if (submissionId) {
-        await pool.query(
-          `UPDATE rights_submissions SET payment_status = $1, payment_ref = $2, updated_at = $3 WHERE id = $4`,
-          ['failed', txRef, new Date(), submissionId]
-        );
-      }
-      if (shareholderEmail) {
-        try {
-          await mailgunEmailService.sendPaymentFailureEmail({
-            email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-            amount: baseAmount, errorMessage: queryResult.message || 'Payment verification failed',
-            paymentDate: new Date().toLocaleString()
-          });
-        } catch (emailError) {
-          console.error('Failed to send payment failure email:', emailError);
-        }
-      }
-      return res.json({
-        success: true, paymentReceived: false, paymentFailed: true,
-        data: { status: 'FAILED', amount: transaction.amount }
-      });
-    }
-
-    console.log('Payment not yet received, returning pending');
-    return res.json({
-      success: true,
-      paymentReceived: false,
-      data: { status: transaction.status }
-    });
+    return res.json({ success: true, paymentReceived: false, data: { status: transaction.status } });
   } catch (error) {
     console.error('Verify public payment error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -437,47 +416,54 @@ router.post('/public/verify', async (req, res) => {
 
 router.post('/public/webhook', async (req, res) => {
   try {
-    const { txRef, status, amount } = req.body;
-    console.log('Webhook received:', { txRef, status, amount });
-
+    const { txRef } = req.body;
     if (!txRef) {
       return res.status(400).json({ success: false, message: 'Transaction reference is required' });
     }
 
-    // Direct lookup in our database
     const existingTransaction = await pool.query(
       "SELECT * FROM dynamic_nuban_accounts WHERE transaction_ref = $1",
       [txRef]
     );
 
     if (!existingTransaction.rows.length) {
-      console.log('Webhook: Transaction not found in database:', txRef);
       return res.status(404).json({ success: false, message: "Transaction not found" });
     }
 
     const transaction = existingTransaction.rows[0];
-
-    // All terminal statuses — block re-processing for all of them, not just VERIFIED
-    const TERMINAL_STATUSES = ['VERIFIED', 'OVERPAID', 'UNDERPAID', 'FAILED'];
+    const TERMINAL_STATUSES = ['VERIFIED', 'OVERPAID', 'FAILED'];
 
     if (TERMINAL_STATUSES.includes(transaction.status)) {
-      console.log(`Webhook: Transaction already in terminal state (${transaction.status}), skipping`);
-      return res.status(200).json({ success: true, message: 'Already processed' });
+       return res.status(200).json({ success: true, message: 'Already processed' });
     }
 
-    // Verify with Vetropay to be sure (security) — no DB lock held during external call
     const queryResult = await paymentService.queryDynamic(txRef);
-    console.log('Webhook: Vetropay query result:', JSON.stringify(queryResult, null, 2));
+    const data = queryResult.data || {};
 
-    if (queryResult.status === 'success' && queryResult.data?.paymentReceived === true) {
-      console.log('Webhook: Payment received! Checking amount variance...');
-
-      const amountReceived = parseFloat(queryResult.data?.amountReceived || transaction.amount);
+    if (queryResult.status === 'success' && data?.paymentReceived === true) {
+      const newTotal = parseFloat(data.amount || data.amountReceived || 0); // Total NET received from Vetropay
+      
       const baseAmount = parseFloat(transaction.amount);
-      const TOLERANCE = 1;
-      const diff = amountReceived - baseAmount;
+      const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
 
+      const fees = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
+      let newGross = parseFloat(data.totalPaid || (newTotal + fees));
+      if (fees === 0 && principalGoal > 0) {
+          newGross = newTotal * (baseAmount / principalGoal);
+      }
+      newGross = Math.round(newGross * 100) / 100; // Round for display
+
+      const previousTotal = parseFloat(transaction.amount_received || 0);
+      const amountReceived = newTotal - previousTotal; // NEW net amount to credit
+      
+      if (amountReceived <= 0) {
+        return res.status(200).json({ success: true, message: 'Already processed or no new payment' });
+      }
+      
+      const TOLERANCE = 1;
       let dbStatus, submissionPaymentStatus, varianceType;
+      const diff = newTotal - principalGoal;
+
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
       } else if (diff > TOLERANCE) {
@@ -485,140 +471,72 @@ router.post('/public/webhook', async (req, res) => {
       } else {
         varianceType = 'underpaid'; dbStatus = 'UNDERPAID'; submissionPaymentStatus = 'underpaid';
       }
-      const excess = varianceType === 'overpaid' ? diff : 0;
-      const balance = varianceType === 'underpaid' ? Math.abs(diff) : 0;
-
-      console.log(`Webhook: variance=${varianceType}, received=₦${amountReceived}, expected=₦${baseAmount}`);
-
-      // Acquire row-level lock and perform all DB writes atomically.
-      // FOR UPDATE re-checks status under the lock — if a concurrent request
-      // (e.g. the user also hitting /public/verify) already processed this, skip.
-      let shareholderName = transaction.shareholder_name;
-      let shareholderEmail = transaction.email;
 
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-
-        const locked = await client.query(
-          'SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE',
-          [txRef]
-        );
+        const locked = await client.query('SELECT status FROM dynamic_nuban_accounts WHERE transaction_ref = $1 FOR UPDATE', [txRef]);
 
         if (TERMINAL_STATUSES.includes(locked.rows[0]?.status)) {
-          await client.query('ROLLBACK');
-          console.log('Webhook: Concurrent request already processed this transaction, skipping');
+           await client.query('ROLLBACK');
         } else {
-          // 1. Update transaction status
           await client.query(
-            'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3 WHERE transaction_ref = $4',
-            [dbStatus, JSON.stringify(queryResult), amountReceived, txRef]
+            'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3, gross_amount_received = $5, metadata = $6 WHERE transaction_ref = $4',
+            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(data)]
           );
 
-          // 2. Log to wallet_actions — ON CONFLICT is last line of defence against duplicates
+          const uniqueTxRef = `${txRef}-${Date.now()}`;
           await client.query(
-            `INSERT INTO wallet_actions
-             (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (transaction_ref) DO NOTHING`,
-            [1, amountReceived, 'CREDIT', txRef,
-             `Webhook: Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
+            `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (transaction_ref) DO NOTHING`,
+            [1, amountReceived, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
           );
 
-          // 3. Update wallet atomically (balance = balance + amount avoids read-modify-write race)
           if (transaction.shareholder_id) {
-            const walletExists = await client.query(
-              'SELECT id FROM wallets WHERE shareholder_id = $1', [transaction.shareholder_id]
-            );
-            if (walletExists.rows.length > 0) {
-              await client.query(
-                'UPDATE wallets SET balance = balance + $1, updated_at = $2 WHERE shareholder_id = $3',
-                [amountReceived, new Date(), transaction.shareholder_id]
-              );
-            } else {
-              await client.query(
-                'INSERT INTO wallets (shareholder_id, balance, created_at, updated_at) VALUES ($1, $2, $3, $4)',
-                [transaction.shareholder_id, amountReceived, new Date(), new Date()]
-              );
-            }
-          }
-
-          // 4. Update rights_submissions if applicable
-          const submissionCheck = await client.query(
-            'SELECT id, name, email FROM rights_submissions WHERE payment_ref = $1', [txRef]
-          );
-
-          if (submissionCheck.rows.length > 0) {
-            const submission = submissionCheck.rows[0];
             await client.query(
-              `UPDATE rights_submissions
-               SET payment_status = $1, payment_date = $2, updated_at = $3
-               WHERE id = $4`,
-              [submissionPaymentStatus, new Date(), new Date(), submission.id]
+              'INSERT INTO wallets (shareholder_id, balance, updated_at) VALUES ($1, $2, $3) ON CONFLICT (shareholder_id) DO UPDATE SET balance = wallets.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at',
+              [transaction.shareholder_id, amountReceived, new Date()]
             );
-            shareholderName = submission.name;
-            shareholderEmail = submission.email;
-            console.log(`Webhook: Updated rights_submission to '${submissionPaymentStatus}' for ID:`, submission.id);
           }
 
+          const sub = await client.query('SELECT id, email, name FROM rights_submissions WHERE payment_ref = $1', [txRef]);
+          if (sub.rows.length > 0 && (dbStatus === 'VERIFIED' || dbStatus === 'OVERPAID')) {
+             await client.query('UPDATE rights_submissions SET payment_status = $1, payment_date = $2, updated_at = $3 WHERE id = $4',
+               [submissionPaymentStatus, new Date(), new Date(), sub.rows[0].id]);
+          }
           await client.query('COMMIT');
-          console.log('Webhook: Transaction committed');
+
+          const email = sub.rows[0]?.email || transaction.email;
+          const name = sub.rows[0]?.name || transaction.shareholder_name;
+          if (email) {
+             const baseAmount = parseFloat(transaction.amount);
+             const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
+             const fees = baseAmount - principalGoal;
+             if (varianceType === 'exact') {
+                 mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: newTotal, processorFee: fees, paymentDate: new Date().toLocaleString() });
+             } else if (varianceType === 'underpaid') {
+                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: fees, expectedTotal: baseAmount, amountReceived: newTotal, balancePayable: Math.max(0, principalGoal - newTotal), paymentDate: new Date().toLocaleString() });
+             }
+          }
         }
-      } catch (dbError) {
+      } catch (err) {
         await client.query('ROLLBACK');
-        throw dbError;
+        console.error('Webhook DB Error:', err);
       } finally {
         client.release();
       }
-
-      // Send email outside the transaction (non-critical)
-      if (shareholderEmail) {
-        try {
-          if (varianceType === 'exact') {
-            await mailgunEmailService.sendPaymentSuccessEmail({
-              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amount: baseAmount, amountPaid: amountReceived, processorFee: 0,
-              paymentDate: new Date().toLocaleString()
-            });
-          } else if (varianceType === 'overpaid') {
-            await mailgunEmailService.sendOverpaymentEmail({
-              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amountExpected: baseAmount, amountReceived, excess,
-              paymentDate: new Date().toLocaleString()
-            });
-          } else if (varianceType === 'underpaid') {
-            await mailgunEmailService.sendUnderpaymentEmail({
-              email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amountExpected: baseAmount, amountReceived, balance,
-              paymentDate: new Date().toLocaleString()
-            });
-          }
-          console.log(`Webhook: Payment ${varianceType} email sent to:`, shareholderEmail);
-        } catch (emailError) {
-          console.error('Webhook: Failed to send payment email:', emailError);
-        }
-      }
-
-      return res.status(200).json({ success: true, message: 'Webhook processed successfully' });
-    } else {
-      console.log('Webhook: Payment not yet confirmed by Vetropay query');
-      return res.status(200).json({ success: true, message: 'Webhook received, but payment not yet confirmed by provider' });
     }
-
+    return res.status(200).json({ success: true, message: 'Webhook processed' });
   } catch (error) {
-    console.error('Webhook processing error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error('Webhook error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-// --- AUTHENTICATED ROUTES ---
 
 router.get('/data', authenticate, (req, res) => controller.getWalletData(req, res));
 router.post('/generate-account', authenticate, (req, res) => controller.generateDynamicAccount(req, res));
 router.post('/verify', authenticate, (req, res) => controller.queryDynamicAccount(req, res));
 router.get('/transactions', authenticate, (req, res) => controller.listTransactions(req, res));
-
-// Admin routes
 router.post('/admin/verify-manual', authenticate, (req, res) => controller.manualVerifyTransaction(req, res));
 
 module.exports = router;
