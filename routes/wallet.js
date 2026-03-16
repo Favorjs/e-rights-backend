@@ -286,6 +286,7 @@ router.post('/public/verify', async (req, res) => {
     const shareholderName = name || transaction.shareholder_name;
 
     if (queryResult.status === 'success' && data?.paymentReceived === true) {
+      console.log('[VETROPAY RESPONSE DATA]', JSON.stringify(data, null, 2));
       const newTotal = parseFloat(data.amount || data.amountReceived || 0); // Total NET received from Vetropay
       
       const baseAmount = parseFloat(transaction.amount); // Gross Goal
@@ -302,10 +303,10 @@ router.post('/public/verify', async (req, res) => {
       
       const previousTotal = parseFloat(transaction.amount_received || 0);
       const amountReceived = newTotal - previousTotal; // NEW net amount to credit
-      
+
       const TOLERANCE = 1;
       let dbStatus, submissionPaymentStatus, varianceType;
-      const diff = newTotal - principalGoal;
+      const diff = newGross - baseAmount; // compare gross paid (left customer's bank) vs expected total
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
@@ -485,7 +486,7 @@ router.post('/public/webhook', async (req, res) => {
       
       const TOLERANCE = 1;
       let dbStatus, submissionPaymentStatus, varianceType;
-      const diff = newTotal - principalGoal;
+      const diff = newGross - baseAmount; // compare gross paid (left customer's bank) vs expected total
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
