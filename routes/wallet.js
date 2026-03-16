@@ -304,9 +304,11 @@ router.post('/public/verify', async (req, res) => {
       const previousTotal = parseFloat(transaction.amount_received || 0);
       const amountReceived = newTotal - previousTotal; // NEW net amount to credit
 
-      const TOLERANCE = 1;
+      const TOLERANCE = 50; // absorbs NIP interbank fee Vetropay deducts but never reports
       let dbStatus, submissionPaymentStatus, varianceType;
-      const diff = newGross - baseAmount; // compare gross paid (left customer's bank) vs expected total
+      // Compare (net + Vetropay fee) vs principal goal.
+      // This neutralises the unpredictable NIP fee taken before Vetropay sees the money.
+      const diff = (newTotal + fees) - principalGoal;
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
@@ -484,9 +486,9 @@ router.post('/public/webhook', async (req, res) => {
         return res.status(200).json({ success: true, message: 'Already processed or no new payment' });
       }
       
-      const TOLERANCE = 1;
+      const TOLERANCE = 50; // absorbs NIP interbank fee Vetropay deducts but never reports
       let dbStatus, submissionPaymentStatus, varianceType;
-      const diff = newGross - baseAmount; // compare gross paid (left customer's bank) vs expected total
+      const diff = (newTotal + fees) - principalGoal;
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';

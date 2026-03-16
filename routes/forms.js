@@ -999,6 +999,10 @@ router.post('/submit-rights', async (req, res) => {
       if (formData.apply_additional === 'true' || formData.apply_additional === true) {
         additionalShares = safeNumber(formData.additional_shares);
         additionalAmount = safeNumber(formData.additional_amount) || (additionalShares * pricePerShare);
+      } else {
+        // Sanitize — clear any stale values from sessionStorage or previous form state
+        formData.additional_shares = 0;
+        formData.additional_amount = 0;
       }
 
       formData.amount_payable = (amountDue + additionalAmount).toFixed(2);
