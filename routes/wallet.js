@@ -392,14 +392,14 @@ router.post('/public/verify', async (req, res) => {
         if (varianceType === 'exact') {
             await mailgunEmailService.sendPaymentSuccessEmail({
                 email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-                amount: principalGoal, amountPaid: finalNetForDB, processorFee: fees,
+                amount: principalGoal, amountPaid: finalNetForDB, processorFee: feesReported,
                 paymentDate: new Date().toLocaleString()
             });
         } else if (varianceType === 'underpaid') {
             await mailgunEmailService.sendUnderpaymentEmail({
                 email: shareholderEmail, name: shareholderName, transactionRef: txRef,
                 principalAmount: principalGoal,
-                processorFee: fees,
+                processorFee: feesReported,
                 expectedTotal: baseAmount,
                 amountReceived: finalNetForDB,
                 balancePayable: Math.max(0, principalGoal - finalNetForDB),
@@ -549,11 +549,10 @@ router.post('/public/webhook', async (req, res) => {
           const email = sub.rows[0]?.email || transaction.email;
           const name = sub.rows[0]?.name || transaction.shareholder_name;
           if (email) {
-             const fees = feesReported || (baseAmount - principalGoal);
              if (varianceType === 'exact') {
-                 mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: finalNetForDB, processorFee: fees, paymentDate: new Date().toLocaleString() });
+                 mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: finalNetForDB, processorFee: feesReported, paymentDate: new Date().toLocaleString() });
              } else if (varianceType === 'underpaid') {
-                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: fees, expectedTotal: baseAmount, amountReceived: finalGrossForDB, balancePayable: Math.max(0, principalGoal - finalNetForDB), paymentDate: new Date().toLocaleString() });
+                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: feesReported, expectedTotal: baseAmount, amountReceived: finalGrossForDB, balancePayable: Math.max(0, principalGoal - finalNetForDB), paymentDate: new Date().toLocaleString() });
              }
           }
         }
