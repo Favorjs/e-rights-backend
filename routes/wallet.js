@@ -299,11 +299,9 @@ router.post('/public/verify', async (req, res) => {
       // 3. Growth calculations for wallet
       const previousTotalNet = parseFloat(transaction.amount_received || 0);
       const amountToCreditNow = Math.max(0, newTotalNet - previousTotalNet);
-      
-      const TOLERANCE = 100; 
+
+      const TOLERANCE = 1;
       let dbStatus, submissionPaymentStatus, varianceType;
-      
-      // 4. Compare Net vs Net for status determination
       const diff = newTotalNet - principalGoal;
 
       if (Math.abs(diff) <= TOLERANCE) {
@@ -391,8 +389,6 @@ router.post('/public/verify', async (req, res) => {
       }
 
       if (shareholderEmail) {
-        const fees = disclosedFee;
-        
         if (varianceType === 'exact') {
             await mailgunEmailService.sendPaymentSuccessEmail({
                 email: shareholderEmail, name: shareholderName, transactionRef: txRef,
@@ -469,17 +465,15 @@ router.post('/public/webhook', async (req, res) => {
       // 1. Determine the Net and Fee
       const newTotalNet = parseFloat(data.amount || data.amountReceived || 0); // Strictly Net Credit
       const feesReported = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
-      const newGross = parseFloat(data.totalPaid || (newTotalNet + feesReported)); // Gross sent from bank
-      
       // 2. Goals
       const baseAmount = parseFloat(transaction.amount);
       const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
-      
+
       // 3. Net Growths
       const previousTotalNet = parseFloat(transaction.amount_received || 0);
       const amountToCreditNow = Math.max(0, newTotalNet - previousTotalNet);
-      
-      const TOLERANCE = 100;
+
+      const TOLERANCE = 1;
       let dbStatus, submissionPaymentStatus, varianceType;
       const diff = newTotalNet - principalGoal;
 
