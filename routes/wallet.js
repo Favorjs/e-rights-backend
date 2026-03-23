@@ -287,28 +287,24 @@ router.post('/public/verify', async (req, res) => {
 
     if (queryResult.status === 'success' && data?.paymentReceived === true) {
       console.log('[VETROPAY RESPONSE DATA]', JSON.stringify(data, null, 2));
-      const newTotal = parseFloat(data.amount || data.amountReceived || 0); // Total NET received from Vetropay
       
-      const baseAmount = parseFloat(transaction.amount); // Gross Goal
-      const principalGoal = parseFloat(transaction.principal_amount || baseAmount); // Principal Goal
+      // 1. Primary sources of truth from Vetropay
+      const newTotalNet = parseFloat(data.amount || data.amountReceived || 0); // Strictly Net Credit
+      const feesReported = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
+      const newGross = parseFloat(data.totalPaid || (newTotalNet + feesReported)); // Gross sent from bank
       
-      // Calculate Gross using the original fee ratio if not explicitly provided
-      const fees = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
-      let newGross = parseFloat(data.totalPaid || (newTotal + fees));
-      if (fees === 0 && principalGoal > 0) {
-          // If no fees reported, interpolate based on the original request's fee ratio (ExpectedTotal / PrincipalGoal)
-          newGross = newTotal * (baseAmount / principalGoal);
-      }
-      newGross = Math.round(newGross * 100) / 100; // Round for display
+      // 2. Internal goals
+      const baseAmount = parseFloat(transaction.amount); // Expected Gross (Principal + Disclosed Fee)
+      const principalGoal = parseFloat(transaction.principal_amount || baseAmount); // Expected Net
+      // 3. Growth calculations for wallet
+      const previousTotalNet = parseFloat(transaction.amount_received || 0);
+      const amountToCreditNow = Math.max(0, newTotalNet - previousTotalNet);
       
-      const previousTotal = parseFloat(transaction.amount_received || 0);
-      const amountReceived = newTotal - previousTotal; // NEW net amount to credit
-
-      const TOLERANCE = 50; // absorbs NIP interbank fee Vetropay deducts but never reports
+      const TOLERANCE = 100; 
       let dbStatus, submissionPaymentStatus, varianceType;
-      // Compare (net + Vetropay fee) vs principal goal.
-      // This neutralises the unpredictable NIP fee taken before Vetropay sees the money.
-      const diff = (newTotal + fees) - principalGoal;
+      
+      // 4. Compare Net vs Net for status determination
+      const diff = newTotalNet - principalGoal;
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
@@ -317,6 +313,10 @@ router.post('/public/verify', async (req, res) => {
       } else {
         varianceType = 'underpaid'; dbStatus = 'UNDERPAID'; submissionPaymentStatus = 'underpaid';
       }
+
+      // Re-adjust newTotal for DB storage to be the effective net
+      const finalNetForDB = newTotalNet;
+      const finalGrossForDB = newGross;
 
       const client = await pool.connect();
       try {
@@ -339,9 +339,9 @@ router.post('/public/verify', async (req, res) => {
               ...previousHistory,
               {
                 status: dbStatus,
-                gross_received: newGross,
-                net_received: newTotal,
-                amount_credited: amountReceived,
+                gross_received: finalGrossForDB,
+                net_received: finalNetForDB,
+                amount_credited: amountToCreditNow,
                 timestamp: new Date().toISOString(),
               },
             ],
@@ -350,21 +350,24 @@ router.post('/public/verify', async (req, res) => {
 
           await client.query(
             'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3, gross_amount_received = $5, metadata = $6 WHERE transaction_ref = $4',
-            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(newMeta)]
+            [dbStatus, JSON.stringify(queryResult), finalNetForDB, txRef, finalGrossForDB, JSON.stringify(newMeta)]
           );
 
-          const uniqueTxRef = `${txRef}-${Date.now()}`;
-          await client.query(
-            `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [1, amountReceived, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
-          );
-
-          if (transaction.shareholder_id) {
+          // Only credit if there's a new amount to credit
+          if (amountToCreditNow > 0) {
+            const uniqueTxRef = `${txRef}-${Date.now()}`;
             await client.query(
-              'INSERT INTO wallets (shareholder_id, balance, updated_at) VALUES ($1, $2, $3) ON CONFLICT (shareholder_id) DO UPDATE SET balance = wallets.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at',
-              [transaction.shareholder_id, amountReceived, new Date()]
+              `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [1, amountToCreditNow, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
             );
+
+            if (transaction.shareholder_id) {
+              await client.query(
+                'INSERT INTO wallets (shareholder_id, balance, updated_at) VALUES ($1, $2, $3) ON CONFLICT (shareholder_id) DO UPDATE SET balance = wallets.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at',
+                [transaction.shareholder_id, amountToCreditNow, new Date()]
+              );
+            }
           }
 
           if (submissionId && (dbStatus === 'VERIFIED' || dbStatus === 'OVERPAID')) {
@@ -388,14 +391,12 @@ router.post('/public/verify', async (req, res) => {
       }
 
       if (shareholderEmail) {
-        const baseAmount = parseFloat(transaction.amount);
-        const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
-        const fees = baseAmount - principalGoal;
+        const fees = disclosedFee;
         
         if (varianceType === 'exact') {
             await mailgunEmailService.sendPaymentSuccessEmail({
                 email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-                amount: principalGoal, amountPaid: newTotal, processorFee: fees,
+                amount: principalGoal, amountPaid: finalNetForDB, processorFee: fees,
                 paymentDate: new Date().toLocaleString()
             });
         } else if (varianceType === 'underpaid') {
@@ -404,31 +405,30 @@ router.post('/public/verify', async (req, res) => {
                 principalAmount: principalGoal,
                 processorFee: fees,
                 expectedTotal: baseAmount,
-                amountReceived: newGross,
-                balancePayable: Math.max(0, principalGoal - newTotal),
+                amountReceived: finalNetForDB,
+                balancePayable: Math.max(0, principalGoal - finalNetForDB),
                 paymentDate: new Date().toLocaleString()
             });
         } else if (varianceType === 'overpaid') {
              await mailgunEmailService.sendOverpaymentEmail({
               email: shareholderEmail, name: shareholderName, transactionRef: txRef,
-              amountExpected: principalGoal, amountReceived: newTotal, excess: diff,
+              amountExpected: principalGoal, amountReceived: finalNetForDB, excess: (finalGrossForDB - baseAmount),
               paymentDate: new Date().toLocaleString()
             });
         }
       }
 
-      const princ = parseFloat(transaction.principal_amount || baseAmount);
       return res.json({
         success: true,
         paymentReceived: ['VERIFIED', 'OVERPAID'].includes(dbStatus),
         paymentStatus: dbStatus,
         amountExpected: baseAmount, // Gross Goal
-        amountPaid: newTotal, // Total Net Received
-        grossReceived: newGross, // Total Gross Received
-        balance: dbStatus === 'UNDERPAID' ? Math.max(0, baseAmount - newTotal) : 0, // Legacy field
-        balancePayable: Math.max(0, princ - newTotal), // Principal Balance
-        principalAmount: princ,
-        processorFee: baseAmount - princ,
+        amountPaid: finalNetForDB, // Net Credit Total
+        grossReceived: finalGrossForDB, 
+        balance: dbStatus === 'UNDERPAID' ? Math.max(0, principalGoal - finalNetForDB) : 0, 
+        balancePayable: Math.max(0, principalGoal - finalNetForDB), 
+        principalAmount: principalGoal,
+        processorFee: feesReported || (baseAmount - principalGoal),
         data: { status: dbStatus }
       });
     }
@@ -465,30 +465,23 @@ router.post('/public/webhook', async (req, res) => {
 
     const queryResult = await paymentService.queryDynamic(txRef);
     const data = queryResult.data || {};
-
     if (queryResult.status === 'success' && data?.paymentReceived === true) {
-      const newTotal = parseFloat(data.amount || data.amountReceived || 0); // Total NET received from Vetropay
+      // 1. Determine the Net and Fee
+      const newTotalNet = parseFloat(data.amount || data.amountReceived || 0); // Strictly Net Credit
+      const feesReported = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
+      const newGross = parseFloat(data.totalPaid || (newTotalNet + feesReported)); // Gross sent from bank
       
+      // 2. Goals
       const baseAmount = parseFloat(transaction.amount);
       const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
-
-      const fees = parseFloat(data.chargeAmount || data.charge_amount || data.fee || data.fee_amount || 0);
-      let newGross = parseFloat(data.totalPaid || (newTotal + fees));
-      if (fees === 0 && principalGoal > 0) {
-          newGross = newTotal * (baseAmount / principalGoal);
-      }
-      newGross = Math.round(newGross * 100) / 100; // Round for display
-
-      const previousTotal = parseFloat(transaction.amount_received || 0);
-      const amountReceived = newTotal - previousTotal; // NEW net amount to credit
       
-      if (amountReceived <= 0) {
-        return res.status(200).json({ success: true, message: 'Already processed or no new payment' });
-      }
+      // 3. Net Growths
+      const previousTotalNet = parseFloat(transaction.amount_received || 0);
+      const amountToCreditNow = Math.max(0, newTotalNet - previousTotalNet);
       
-      const TOLERANCE = 50; // absorbs NIP interbank fee Vetropay deducts but never reports
+      const TOLERANCE = 100;
       let dbStatus, submissionPaymentStatus, varianceType;
-      const diff = (newTotal + fees) - principalGoal;
+      const diff = newTotalNet - principalGoal;
 
       if (Math.abs(diff) <= TOLERANCE) {
         varianceType = 'exact'; dbStatus = 'VERIFIED'; submissionPaymentStatus = 'successful';
@@ -497,6 +490,9 @@ router.post('/public/webhook', async (req, res) => {
       } else {
         varianceType = 'underpaid'; dbStatus = 'UNDERPAID'; submissionPaymentStatus = 'underpaid';
       }
+      
+      const finalNetForDB = newTotalNet;
+      const finalGrossForDB = (newTotalNet + feesReported); 
 
       const client = await pool.connect();
       try {
@@ -513,9 +509,9 @@ router.post('/public/webhook', async (req, res) => {
               ...previousHistory,
               {
                 status: dbStatus,
-                gross_received: newGross,
-                net_received: newTotal,
-                amount_credited: amountReceived,
+                gross_received: finalGrossForDB,
+                net_received: finalNetForDB,
+                amount_credited: amountToCreditNow,
                 timestamp: new Date().toISOString(),
               },
             ],
@@ -524,21 +520,24 @@ router.post('/public/webhook', async (req, res) => {
 
           await client.query(
             'UPDATE dynamic_nuban_accounts SET status = $1, response = $2, amount_received = $3, gross_amount_received = $5, metadata = $6 WHERE transaction_ref = $4',
-            [dbStatus, JSON.stringify(queryResult), newTotal, txRef, newGross, JSON.stringify(newMeta)]
+            [dbStatus, JSON.stringify(queryResult), finalNetForDB, txRef, finalGrossForDB, JSON.stringify(newMeta)]
           );
 
-          const uniqueTxRef = `${txRef}-${Date.now()}`;
-          await client.query(
-            `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [1, amountReceived, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
-          );
-
-          if (transaction.shareholder_id) {
+          // Only credit if there's a new amount to credit
+          if (amountToCreditNow > 0) {
+            const uniqueTxRef = `${txRef}-${Date.now()}`;
             await client.query(
-              'INSERT INTO wallets (shareholder_id, balance, updated_at) VALUES ($1, $2, $3) ON CONFLICT (shareholder_id) DO UPDATE SET balance = wallets.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at',
-              [transaction.shareholder_id, amountReceived, new Date()]
+              `INSERT INTO wallet_actions (ledger_id, delta, transaction_type, transaction_ref, summary, timestamp)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [1, amountToCreditNow, 'CREDIT', uniqueTxRef, `Rights Issue Payment [${dbStatus}] - Account: ${transaction.account_number}`, new Date()]
             );
+
+            if (transaction.shareholder_id) {
+              await client.query(
+                'INSERT INTO wallets (shareholder_id, balance, updated_at) VALUES ($1, $2, $3) ON CONFLICT (shareholder_id) DO UPDATE SET balance = wallets.balance + EXCLUDED.balance, updated_at = EXCLUDED.updated_at',
+                [transaction.shareholder_id, amountToCreditNow, new Date()]
+              );
+            }
           }
 
           const sub = await client.query('SELECT id, email, name FROM rights_submissions WHERE payment_ref = $1', [txRef]);
@@ -556,13 +555,11 @@ router.post('/public/webhook', async (req, res) => {
           const email = sub.rows[0]?.email || transaction.email;
           const name = sub.rows[0]?.name || transaction.shareholder_name;
           if (email) {
-             const baseAmount = parseFloat(transaction.amount);
-             const principalGoal = parseFloat(transaction.principal_amount || baseAmount);
-             const fees = baseAmount - principalGoal;
+             const fees = feesReported || (baseAmount - principalGoal);
              if (varianceType === 'exact') {
-                 mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: newTotal, processorFee: fees, paymentDate: new Date().toLocaleString() });
+                 mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: finalNetForDB, processorFee: fees, paymentDate: new Date().toLocaleString() });
              } else if (varianceType === 'underpaid') {
-                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: fees, expectedTotal: baseAmount, amountReceived: newGross, balancePayable: Math.max(0, principalGoal - newTotal), paymentDate: new Date().toLocaleString() });
+                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: fees, expectedTotal: baseAmount, amountReceived: finalGrossForDB, balancePayable: Math.max(0, principalGoal - finalNetForDB), paymentDate: new Date().toLocaleString() });
              }
           }
         }
