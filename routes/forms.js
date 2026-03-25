@@ -1691,6 +1691,110 @@ router.get('/shareholder/:shareholderId', async (req, res) => {
   }
 });
 
+// Check if shareholder has an existing submission (for additional shares flow)
+router.get('/check-submission/:shareholderId', async (req, res) => {
+  try {
+    const { shareholderId } = req.params;
+    const result = await pool.query(
+      `SELECT id, action_type, payment_status, payment_ref, additional_shares, additional_amount,
+              additional_submission_count, special_notes, additional_submissions_history, created_at
+       FROM rights_submissions WHERE shareholder_id = $1 LIMIT 1`,
+      [shareholderId]
+    );
+    if (result.rows.length === 0) {
+      return res.json({ exists: false });
+    }
+    res.json({ exists: true, submission: result.rows[0] });
+  } catch (error) {
+    console.error('Error checking submission:', error);
+    res.status(500).json({ error: 'Failed to check submission' });
+  }
+});
+
+// Submit additional shares only (for shareholders who already submitted)
+router.post('/submit-additional', async (req, res) => {
+  try {
+    const { shareholder_id, additional_shares, additional_amount, payment_ref } = req.body;
+    if (!shareholder_id || !additional_shares || parseFloat(additional_shares) <= 0) {
+      return res.status(400).json({ error: 'shareholder_id and additional_shares are required' });
+    }
+
+    const existing = await pool.query(
+      `SELECT id, additional_submission_count, additional_shares AS prev_shares,
+              additional_amount AS prev_amount, additional_submissions_history
+       FROM rights_submissions WHERE shareholder_id = $1 LIMIT 1`,
+      [shareholder_id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'No existing submission found for this shareholder' });
+    }
+
+    const row = existing.rows[0];
+    const currentCount = parseInt(row.additional_submission_count || 0);
+
+    if (currentCount >= 2) {
+      return res.status(400).json({
+        error: 'Maximum additional submissions reached',
+        message: 'You have already made 2 additional share applications. No further submissions are allowed.'
+      });
+    }
+
+    const newCount = currentCount + 1;
+    const newLabel = `Special Additional (${newCount})`;
+
+    // Accumulate shares and amount on top of any prior additional
+    const prevShares = parseFloat(row.prev_shares || 0);
+    const prevAmount = parseFloat(row.prev_amount || 0);
+    const totalShares = prevShares + parseFloat(additional_shares);
+    const totalAmount = prevAmount + parseFloat(additional_amount || 0);
+
+    // Build history entry
+    const history = Array.isArray(row.additional_submissions_history) ? row.additional_submissions_history : [];
+    const newEntry = {
+      count: newCount,
+      label: newLabel,
+      shares: parseFloat(additional_shares),
+      amount: parseFloat(additional_amount || 0),
+      payment_ref: payment_ref || null,
+      submitted_at: new Date().toISOString(),
+    };
+
+    await pool.query(
+      `UPDATE rights_submissions
+       SET apply_additional = true,
+           additional_shares = $1,
+           additional_amount = $2,
+           additional_payment_ref = $3,
+           additional_payment_status = 'successful',
+           additional_submission_count = $4,
+           additional_submissions_history = $5::jsonb,
+           special_notes = $6,
+           updated_at = NOW()
+       WHERE shareholder_id = $7`,
+      [
+        totalShares,
+        totalAmount,
+        payment_ref || null,
+        newCount,
+        JSON.stringify([...history, newEntry]),
+        newLabel,
+        shareholder_id,
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: 'Additional shares application submitted successfully',
+      submissionCount: newCount,
+      remainingSubmissions: 2 - newCount,
+      label: newLabel,
+    });
+  } catch (error) {
+    console.error('Error submitting additional shares:', error);
+    res.status(500).json({ error: 'Failed to submit additional shares' });
+  }
+});
+
 // Get form by form ID
 router.get('/:id', async (req, res) => {
   try {

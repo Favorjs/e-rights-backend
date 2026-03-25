@@ -297,6 +297,16 @@ const initDatabase = async () => {
       CHECK (payment_status IN ('pending', 'successful', 'failed', 'overpaid', 'underpaid'))
     `).catch(() => { });
 
+    // Add additional submission tracking columns to rights_submissions
+    await pool.query(`
+      ALTER TABLE rights_submissions
+        ADD COLUMN IF NOT EXISTS additional_submission_count INTEGER DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS additional_submissions_history JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS special_notes TEXT,
+        ADD COLUMN IF NOT EXISTS additional_payment_ref VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS additional_payment_status VARCHAR(50)
+    `).catch(() => {});
+
     // Create admin users table (unchanged)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS admin_users (

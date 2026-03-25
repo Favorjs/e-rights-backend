@@ -400,8 +400,8 @@ router.post('/public/verify', async (req, res) => {
                 email: shareholderEmail, name: shareholderName, transactionRef: txRef,
                 principalAmount: principalGoal,
                 processorFee: feesReported,
-                expectedTotal: baseAmount,
-                amountReceived: finalNetForDB,
+                expectedTotal: principalGoal + feesReported,
+                amountReceived: finalGrossForDB,
                 balancePayable: Math.max(0, principalGoal - finalNetForDB),
                 paymentDate: new Date().toLocaleString()
             });
@@ -552,7 +552,7 @@ router.post('/public/webhook', async (req, res) => {
              if (varianceType === 'exact') {
                  mailgunEmailService.sendPaymentSuccessEmail({ email, name, transactionRef: txRef, amount: principalGoal, amountPaid: finalNetForDB, processorFee: feesReported, paymentDate: new Date().toLocaleString() });
              } else if (varianceType === 'underpaid') {
-                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: feesReported, expectedTotal: baseAmount, amountReceived: finalGrossForDB, balancePayable: Math.max(0, principalGoal - finalNetForDB), paymentDate: new Date().toLocaleString() });
+                 mailgunEmailService.sendUnderpaymentEmail({ email, name, transactionRef: txRef, principalAmount: principalGoal, processorFee: feesReported, expectedTotal: principalGoal + feesReported, amountReceived: finalGrossForDB, balancePayable: Math.max(0, principalGoal - finalNetForDB), paymentDate: new Date().toLocaleString() });
              }
           }
         }
