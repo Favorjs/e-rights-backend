@@ -10,7 +10,7 @@ class MailgunEmailService {
     this.apiKey = process.env.MAILGUN_API_KEY;
     this.domain = process.env.MAILGUN_DOMAIN;
     this.fromEmail = process.env.MAILGUN_FROM_EMAIL;
-    this.fromName = 'Linkage Assurance Plc E-rights';
+    this.fromName = 'LASACO Assurance Plc E-rights';
     this.mailgun = new Mailgun(formData);
     this.client = null;
 
@@ -131,7 +131,7 @@ class MailgunEmailService {
                   <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                     <tr>
                       <td>
-                        <h1 style="color: #ffffff; font-size: 18px; margin: 0; font-weight: 700; letter-spacing: -0.025em;">Linkage Assurance Plc</h1>
+                        <h1 style="color: #ffffff; font-size: 18px; margin: 0; font-weight: 700; letter-spacing: -0.025em;">LASACO Assurance Plc</h1>
                         <p style="color: #7dd3fc; font-size: 11px; margin: 4px 0 0; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;">Admin Notification Portal</p>
                       </td>
                       <td align="right">
@@ -245,7 +245,7 @@ class MailgunEmailService {
 
   // Also update the shareholder confirmation email
   async sendShareholderConfirmation(submissionData) {
-    const subject = 'Submission Confirmation - Linkage Assurance Plc Rights Issue';
+    const subject = 'Submission Confirmation - LASACO Assurance Plc Rights Issue';
     const to = submissionData.email;
 
     // Determine acceptance status
@@ -298,7 +298,7 @@ class MailgunEmailService {
               <!-- Header -->
               <tr>
                 <td style="background-color: #0A4269; padding: 40px; text-align: center;" class="header">
-                  <h1 style="color: #ffffff; font-size: 22px; margin: 0; font-weight: 700; letter-spacing: -0.02em;">Linkage Assurance Plc</h1>
+                  <h1 style="color: #ffffff; font-size: 22px; margin: 0; font-weight: 700; letter-spacing: -0.02em;">LASACO Assurance Plc</h1>
                   <p style="color: #93c5fd; font-size: 11px; margin: 8px 0 0; text-transform: uppercase; font-weight: 700; letter-spacing: 0.1em;">Rights Issue Confirmation</p>
                 </td>
               </tr>
@@ -366,10 +366,10 @@ class MailgunEmailService {
               <tr>
                 <td style="background-color: #f8fafc; padding: 32px 40px; text-align: center; border-top: 1px solid #e5e7eb;">
                   <p style="color: #94a3b8; font-size: 11px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em;">
-                    Linkage Assurance Plc Rights Issue Portal
+                    LASACO Assurance Plc Rights Issue Portal
                   </p>
                   <p style="color: #cbd5e1; font-size: 10px; margin: 0;">
-                    &copy; ${new Date().getFullYear()} Linkage Assurance Plc. All rights reserved.
+                    &copy; ${new Date().getFullYear()} LASACO Assurance Plc. All rights reserved.
                   </p>
                 </td>
               </tr>
@@ -444,7 +444,7 @@ class MailgunEmailService {
 
   // Send payment success notification
   async sendPaymentSuccessEmail({ email, name, transactionRef, amount, amountPaid, processorFee, paymentDate }) {
-    const subject = 'Payment Receipt - Linkage Assurance Plc Rights Issue';
+    const subject = 'Payment Receipt - LASACO Assurance Plc Rights Issue';
 
     const html = `
     <!DOCTYPE html>
@@ -486,7 +486,7 @@ class MailgunEmailService {
               <tr>
                 <td style="padding: 48px 40px;" class="content">
                   <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 0 0 32px;">
-                    Hi <strong>${name}</strong>, your payment for the Linkage Assurance Plc Rights Issue has been confirmed. Thank you for your subscription.
+                    Hi <strong>${name}</strong>, your payment for the LASACO Assurance Plc Rights Issue has been confirmed. Thank you for your subscription.
                   </p>
                   
                   <!-- Receipt Box -->
@@ -535,8 +535,8 @@ class MailgunEmailService {
               <!-- Footer -->
               <tr>
                 <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #f1f5f9;">
-                  <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">Linkage Assurance Plc</p>
-                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                  <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">LASACO Assurance Plc</p>
+                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} LASACO Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
               
@@ -560,7 +560,7 @@ class MailgunEmailService {
 
   // Send payment failure notification
   async sendPaymentFailureEmail({ email, name, transactionRef, amount, errorMessage, paymentDate }) {
-    const subject = 'Payment Issue - Linkage Assurance Plc Rights Issue';
+    const subject = 'Payment Issue - LASACO Assurance Plc Rights Issue';
 
     const html = `
     <!DOCTYPE html>
@@ -601,7 +601,7 @@ class MailgunEmailService {
               <tr>
                 <td style="padding: 48px 40px;" class="content">
                   <p style="color: #475569; font-size: 16px; line-height: 1.6; margin: 0 0 32px;">
-                    Hi <strong>${name || 'Valued Shareholder'}</strong>, we were unable to verify your payment for the Linkage Assurance Plc Rights Issue. Please see the details below.
+                    Hi <strong>${name || 'Valued Shareholder'}</strong>, we were unable to verify your payment for the LASACO Assurance Plc Rights Issue. Please see the details below.
                   </p>
                   
                   <!-- Error Box -->
@@ -638,7 +638,7 @@ class MailgunEmailService {
                   </div>
 
                   <p style="color: #64748b; font-size: 13px; margin: 32px 0 0; text-align: center;">
-                    Need help? Contact Linkage Assurance Plc Registrars or your Stockbroker.
+                    Need help? Contact LASACO Assurance Plc Registrars or your Stockbroker.
                   </p>
                 </td>
               </tr>
@@ -646,8 +646,8 @@ class MailgunEmailService {
               <!-- Footer -->
               <tr>
                 <td style="background-color: #f8fafc; padding: 32px; text-align: center; border-top: 1px solid #f1f5f9;">
-                  <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">Linkage Assurance Plc </p>
-                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                  <p style="color: #64748b; font-size: 14px; font-weight: 600; margin: 0 0 8px;">LASACO Assurance Plc </p>
+                  <p style="color: #94a3b8; font-size: 11px; margin: 0;">&copy; ${new Date().getFullYear()} LASACO Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
               
@@ -671,7 +671,7 @@ class MailgunEmailService {
 
   // Send overpayment notification (shareholder + admin)
   async sendOverpaymentEmail({ email, name, transactionRef, amountExpected, amountReceived, excess, paymentDate }) {
-    const subject = 'Overpayment Notice - Linkage Assurance Plc Rights Issue';
+    const subject = 'Overpayment Notice - LASACO Assurance Plc Rights Issue';
     const adminEmail = process.env.ADMIN_EMAIL;
     const fmt = (n) => parseFloat(n).toLocaleString('en-NG', { minimumFractionDigits: 2 });
 
@@ -706,7 +706,7 @@ class MailgunEmailService {
                     Dear <strong>${name || 'Valued Shareholder'}</strong>,
                   </p>
                   <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 32px;">
-                    We have received your payment for the Linkage Assurance Plc Rights Issue. However, we noticed that the amount sent differs from the required amount. Your payment has been <strong>accepted</strong> and your application will proceed.
+                    We have received your payment for the LASACO Assurance Plc Rights Issue. However, we noticed that the amount sent differs from the required amount. Your payment has been <strong>accepted</strong> and your application will proceed.
                   </p>
 
                   <!-- Variance Box -->
@@ -748,8 +748,8 @@ class MailgunEmailService {
               <!-- Footer -->
               <tr>
                 <td style="background-color:#f8fafc;padding:32px;text-align:center;border-top:1px solid #f1f5f9;">
-                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">Linkage Assurance Plc</p>
-                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">LASACO Assurance Plc</p>
+                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} LASACO Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
 
@@ -774,7 +774,7 @@ class MailgunEmailService {
 
   // Send underpayment notification (shareholder + admin)
   async sendUnderpaymentEmail({ email, name, transactionRef, principalAmount, processorFee, expectedTotal, amountReceived, balancePayable, paymentDate }) {
-    const subject = 'Incomplete Payment — Balance Required | Linkage Assurance Plc Rights Issue';
+    const subject = 'Incomplete Payment — Balance Required | LASACO Assurance Plc Rights Issue';
     const adminEmail = process.env.ADMIN_EMAIL;
     const fmt = (n) => parseFloat(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
 
@@ -847,8 +847,8 @@ class MailgunEmailService {
               <!-- Footer -->
               <tr>
                 <td style="background-color:#f8fafc;padding:32px;text-align:center;border-top:1px solid #f1f5f9;">
-                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">Linkage Assurance Plc</p>
-                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">LASACO Assurance Plc</p>
+                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} LASACO Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
 
@@ -912,7 +912,7 @@ class MailgunEmailService {
                     Dear <strong>${name || 'Valued Shareholder'}</strong>,
                   </p>
                   <p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0 0 32px;">
-                    Our records show that you initiated a payment for the Linkage Assurance Plc Rights Issue on <strong>${formattedDate}</strong>, but the transaction remains unverified.
+                    Our records show that you initiated a payment for the LASACO Assurance Plc Rights Issue on <strong>${formattedDate}</strong>, but the transaction remains unverified.
                   </p>
 
                   <div style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:24px;margin-bottom:32px;">
@@ -953,8 +953,8 @@ class MailgunEmailService {
               <!-- Footer -->
               <tr>
                 <td style="background-color:#f8fafc;padding:32px;text-align:center;border-top:1px solid #f1f5f9;">
-                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">Linkage Assurance Plc</p>
-                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} Linkage Assurance Plc Registrars. All rights reserved.</p>
+                  <p style="color:#64748b;font-size:14px;font-weight:600;margin:0 0 8px;">LASACO Assurance Plc</p>
+                  <p style="color:#94a3b8;font-size:11px;margin:0;">&copy; ${new Date().getFullYear()} LASACO Assurance Plc Registrars. All rights reserved.</p>
                 </td>
               </tr>
 

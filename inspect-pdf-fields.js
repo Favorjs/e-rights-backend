@@ -37,7 +37,7 @@ async function inspect(pdfPath) {
 
 (async () => {
   const pdfs = [
-    './rights-form/LINKAGE_RIGHTS_ISSUE.pdf',
+    './rights-form/LASACO_RIGHTS_ISSUE.pdf',
   ];
   for (const p of pdfs) {
     await inspect(path.join(__dirname, p));

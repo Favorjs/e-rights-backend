@@ -30,8 +30,8 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000', // React dev server
       'http://localhost:5000',
-      'https://linkage.apel.com.ng',
-      'https://www.linkage.apel.com.ng'
+      'https://LASACO.apel.com.ng',
+      'https://www.LASACO.apel.com.ng'
     ];
 
     // Check if the origin is in the allowed list or if it's a localhost origin
@@ -121,7 +121,7 @@ const PORT = process.env.PORT || 5000;
 //   });
 //   try {
 //     const data = await mg.messages.create("registrars.apel.com.ng", {
-//       from: "Linkage Assurance E-rights <alerts@registrars.apel.com.ng>",
+//       from: "LASACO Assurance E-rights <alerts@registrars.apel.com.ng>",
 //       to: ["<itservices@apelasset.com>"],
 //       subject: "Hello IT",
 //       text: "Congratulations IT, you just sent an email with Mailgun! You are truly awesome!",

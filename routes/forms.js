@@ -99,14 +99,14 @@ async function generateRightsPdfBuffer(formData) {
     // Load PDF template
     if (false && process.env.NODE_ENV === 'production') {
       const cloudinary = require('../config/cloudinary');
-      const templateUrl = cloudinary.url('rights-submissions/rights-form/LINKAGE_RIGHTS_ISSUE', { format: 'pdf' });
+      const templateUrl = cloudinary.url('rights-submissions/rights-form/LASACO_RIGHTS_ISSUE', { format: 'pdf' });
       const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
       }
       pdfBytes = await response.arrayBuffer();
     } else {
-      const templatePath = path.join(__dirname, '../rights-form/LINKAGE_RIGHTS_ISSUE.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/LASACO_RIGHTS_ISSUE.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
@@ -455,14 +455,14 @@ async function generateRightsPdfBufferjustDownload(formData) {
     // Load PDF template
     if (false && process.env.NODE_ENV === 'production') {
       const cloudinary = require('../config/cloudinary');
-      const templateUrl = cloudinary.url('rights-submissions/rights-form/LINKAGE_RIGHTS_ISSUE', { format: 'pdf' });
+      const templateUrl = cloudinary.url('rights-submissions/rights-form/LASACO_RIGHTS_ISSUE', { format: 'pdf' });
       const response = await fetch(templateUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch PDF template: ${response.status} ${response.statusText}`);
       }
       pdfBytes = await response.arrayBuffer();
     } else {
-      const templatePath = path.join(__dirname, '../rights-form/LINKAGE_RIGHTS_ISSUE_B.pdf');
+      const templatePath = path.join(__dirname, '../rights-form/LASACO_RIGHTS_ISSUE_B.pdf');
       try {
         pdfBytes = await fs.readFile(templatePath);
       } catch (error) {
@@ -979,7 +979,7 @@ router.post('/submit-rights', async (req, res) => {
     formData = cleanedFormData;
 
     // Calculate amount payable based on shares accepted and price per share
-    const pricePerShare = 1.32;
+    const pricePerShare = 2.00;
 
     // Helper function to safely parse numbers
     const safeNumber = (value) => {
@@ -1514,9 +1514,9 @@ router.post('/upload-template', async (req, res) => {
 router.get('/form-template', async (req, res) => {
   try {
     const cloudinary = require('../config/cloudinary');
-    const downloadUrl = cloudinary.url('rights-forms/LINKAGE_RIGHTS_ISSUE', {
+    const downloadUrl = cloudinary.url('rights-forms/LASACO_RIGHTS_ISSUE', {
       secure: true,
-      flags: 'attachment:LINKAGE_RIGHTS_ISSUE_FORM.pdf'
+      flags: 'attachment:LASACO_RIGHTS_ISSUE_FORM.pdf'
     });
 
     res.json({
@@ -1929,7 +1929,7 @@ router.post('/generate-rights-form', async (req, res) => {
 
     // 5. Send the PDF with proper headers
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="LINKAGE_RIGHTS_${shareholderName.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="LASACO_RIGHTS_${shareholderName.replace(/[^a-z0-9]/gi, '_').substring(0, 50)}.pdf"`);
     res.setHeader('Content-Length', filledPdfBytes.length);
     res.send(Buffer.from(filledPdfBytes));
 
@@ -1978,7 +1978,7 @@ router.post('/generate-basic-pdf', async (req, res) => {
 
     // Return PDF with proper headers
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="LINKAGE_RIGHTS_${formData.reg_account_number}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="LASACO_RIGHTS_${formData.reg_account_number}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.send(pdfBuffer);
 
