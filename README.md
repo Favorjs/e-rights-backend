@@ -54,4 +54,4 @@ API documentation is available at `http://localhost:2500/api-docs` when running 
 reg_account_number	name	holdings	rights_issue	holdings after	amount_due	created_at	updated_at
 
 
-\copy shareholders(reg_account_number,name,address,holdings,rights_issue,holdings_after,amount_due,created_at,updated_at) FROM 'C:\Users\fadebowale\Desktop\APEL-WEBSITE\LASACO_register.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');
+\copy shareholders(reg_account_number,name,address,holdings,rights_issue,holdings_after,amount_due,created_at,updated_at) FROM 'C:\Users\fadebowale\Desktop\APEL-WEBSITE\lasaco_register.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');

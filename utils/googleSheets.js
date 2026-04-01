@@ -132,7 +132,7 @@ async function appendSubmissionToSheet(formData, submissionData) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
-      range: 'Sheet1!A:AA',
+      range: 'LASACO Submissions!A:AA',
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] },
@@ -161,7 +161,7 @@ async function updateSheetPaymentStatus(submissionId) {
     // Read column C to find the row that matches submissionId
     const readRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Sheet1!C:C',
+      range: 'LASACO Submissions!C:C',
     });
 
     const rows = readRes.data.values || [];
@@ -182,7 +182,7 @@ async function updateSheetPaymentStatus(submissionId) {
     // Update column AA on that row
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `Sheet1!AA${targetRowIndex}`,
+      range: `LASACO Submissions!AA${targetRowIndex}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [['CONFIRMED']] },
     });
