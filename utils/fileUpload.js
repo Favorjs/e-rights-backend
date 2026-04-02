@@ -14,7 +14,7 @@ class FileUpload {
       cloudinary.uploader.upload_stream(
         {
           resource_type: 'auto',
-          public_id: fileName.replace(/\.[^/.]+$/, ""), // Remove extension
+          public_id: fileName.replace(/\.[^/.]+$/, "").trim(), // Remove extension and trim whitespace
           folder: folder,
           overwrite: true,
           format: this.getFileFormat(fileName)
