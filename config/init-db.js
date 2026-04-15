@@ -330,6 +330,12 @@ const initDatabase = async () => {
       ADD CONSTRAINT wallets_shareholder_id_unique UNIQUE (shareholder_id)
     `).catch(() => { });
 
+    // Add sheets_appended_at column to track Google Sheets sync status
+    await pool.query(`
+      ALTER TABLE rights_submissions
+      ADD COLUMN IF NOT EXISTS sheets_appended_at TIMESTAMP DEFAULT NULL
+    `).catch(() => { });
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);

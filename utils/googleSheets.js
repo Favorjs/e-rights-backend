@@ -138,10 +138,80 @@ async function appendSubmissionToSheet(formData, submissionData) {
       requestBody: { values: [row] },
     });
 
+    // Mark as successfully appended
+    await pool.query(
+      'UPDATE rights_submissions SET sheets_appended_at = NOW() WHERE id = $1',
+      [submissionData.id]
+    );
+
     console.log(`Google Sheets: row appended for submission #${submissionData.id}`);
   } catch (err) {
     console.error('Google Sheets append failed:', err.message);
     // Non-fatal — submission must not fail because of this
+  }
+}
+
+/**
+ * Retry all submissions that were never successfully appended to Google Sheets.
+ * Called by the cron job at 8am and 5pm.
+ */
+async function retryFailedSheetAppends() {
+  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+  if (!spreadsheetId) {
+    console.warn('Google Sheets retry: GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping.');
+    return;
+  }
+
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM rights_submissions
+      WHERE sheets_appended_at IS NULL
+      ORDER BY created_at ASC
+    `);
+
+    if (rows.length === 0) {
+      console.log('Google Sheets retry: all submissions already synced.');
+      return;
+    }
+
+    console.log(`Google Sheets retry: ${rows.length} unsynced submission(s) found. Processing...`);
+
+    for (const row of rows) {
+      const formData = {
+        stockbroker:                      row.stockbroker_id,
+        shareholder_id:                   row.shareholder_id,
+        name:                             row.name,
+        reg_account_number:               row.reg_account_number,
+        bvn:                              row.bvn,
+        chn:                              row.chn,
+        mobile_phone:                     row.mobile_phone,
+        daytime_phone:                    row.daytime_phone,
+        email:                            row.email,
+        rights_issue:                     row.rights_issue,
+        shares_accepted:                  row.shares_accepted,
+        additional_shares:                row.additional_shares,
+        amount_payable:                   row.amount_payable,
+        payment_amount:                   row.payment_amount,
+        bank_name_edividend:              row.bank_name_edividend,
+        account_number:                   row.account_number,
+        additional_payment_cheque_number: row.additional_payment_cheque_number,
+        partial_payment_cheque_number:    row.partial_payment_cheque_number,
+      };
+
+      const submissionData = {
+        id:             row.id,
+        payment_status: row.payment_status || '',
+      };
+
+      await appendSubmissionToSheet(formData, submissionData);
+
+      // Small delay to avoid Google API rate limits
+      await new Promise(resolve => setTimeout(resolve, 600));
+    }
+
+    console.log(`Google Sheets retry: finished processing ${rows.length} submission(s).`);
+  } catch (err) {
+    console.error('Google Sheets retry job failed:', err.message);
   }
 }
 
@@ -193,4 +263,4 @@ async function updateSheetPaymentStatus(submissionId) {
   }
 }
 
-module.exports = { appendSubmissionToSheet, updateSheetPaymentStatus };
+module.exports = { appendSubmissionToSheet, updateSheetPaymentStatus, retryFailedSheetAppends };
