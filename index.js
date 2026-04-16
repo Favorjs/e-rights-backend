@@ -13,8 +13,8 @@ const app = express();
 
 // Import database initialization
 const initDatabase = require('./config/init-db');
-const cron = require('node-cron');
-const { retryFailedSheetAppends } = require('./utils/googleSheets');
+// const cron = require('node-cron');
+// const { retryFailedSheetAppends } = require('./utils/googleSheets');
 
 // Import routes
 const shareholderRoutes = require('./routes/shareholders');
@@ -154,15 +154,13 @@ const startServer = async () => {
       processProofRequests().catch(err => console.error('Scheduled background job failed:', err));
     }, 60 * 60 * 1000);
 
-    // Google Sheets retry cron — 8:00am and 5:00pm WAT (UTC+1 = 07:00 and 16:00 UTC)
-    cron.schedule('0 7,16 * * *', () => {
-      console.log('Cron: running Google Sheets retry job...');
-      retryFailedSheetAppends().catch(err =>
-        console.error('Cron: Google Sheets retry failed:', err.message)
-      );
-    }, { timezone: 'Africa/Lagos' });
-
-    console.log('Cron: Google Sheets retry scheduled at 8:00am and 5:00pm WAT');
+    // Google Sheets retry cron — disabled
+    // cron.schedule('0 7,16 * * *', () => {
+    //   console.log('Cron: running Google Sheets retry job...');
+    //   retryFailedSheetAppends().catch(err =>
+    //     console.error('Cron: Google Sheets retry failed:', err.message)
+    //   );
+    // }, { timezone: 'Africa/Lagos' });
 
     // Start server
     app.listen(PORT, () => {
