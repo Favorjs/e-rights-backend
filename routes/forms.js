@@ -236,8 +236,8 @@ async function generateRightsPdfBuffer(formData) {
       console.log('Processing FULL ACCEPTANCE section');
 
       // SECTION A: Full Acceptance fields
-      setFieldIfExists('accept_full', '✓') ||
-        setFieldIfExists('Accept full allotment', '✓');
+      setFieldIfExists('accept_full', 'Yes') ||
+        setFieldIfExists('Accept full allotment', 'Yes');
 
       setFieldIfExists('amount_payable', fmtMoney(formData.amount_payable)) ||
         setFieldIfExists('Amount payable', fmtMoney(formData.amount_payable));
@@ -246,8 +246,8 @@ async function generateRightsPdfBuffer(formData) {
       if (formData.apply_additional && formData.additional_shares > 0) {
         console.log('Processing ADDITIONAL SHARES section');
 
-        setFieldIfExists('apply_additional', '✓') ||
-          setFieldIfExists('Apply for additional shares', '✓');
+        setFieldIfExists('apply_additional', 'Yes') ||
+          setFieldIfExists('Apply for additional shares', 'Yes');
 
         setFieldIfExists('additional_shares', fmtShares(formData.additional_shares)) ||
           setFieldIfExists('Additional shares applied', fmtShares(formData.additional_shares));
@@ -255,8 +255,8 @@ async function generateRightsPdfBuffer(formData) {
         setFieldIfExists('additional_amount', fmtMoney(formData.additional_amount)) ||
           setFieldIfExists('Additional amount payable', fmtMoney(formData.additional_amount));
 
-        setFieldIfExists('accept_smaller_allotment', formData.accept_smaller_allotment ? '✓' : '') ||
-          setFieldIfExists('Accept smaller allotment', formData.accept_smaller_allotment ? '✓' : '');
+        setFieldIfExists('accept_smaller_allotment', formData.accept_smaller_allotment ? 'Yes' : '') ||
+          setFieldIfExists('Accept smaller allotment', formData.accept_smaller_allotment ? 'Yes' : '');
 
         // Payment details (bank, cheque, etc.) — optional
         setFieldIfExists('bank_name', formData.additional_payment_bank_name || '') ||
@@ -311,14 +311,14 @@ async function generateRightsPdfBuffer(formData) {
       setFieldIfExists('shares_renounced', fmtShares(formData.shares_renounced)) ||
         setFieldIfExists('Shares renounced', fmtShares(formData.shares_renounced));
 
-      setFieldIfExists('accept_partial', formData.accept_partial ? '✓' : '') ||
-        setFieldIfExists('Accept partial', formData.accept_partial ? '✓' : '');
+      setFieldIfExists('accept_partial', formData.accept_partial ? 'Yes' : '') ||
+        setFieldIfExists('Accept partial', formData.accept_partial ? 'Yes' : '');
 
-      setFieldIfExists('renounce_rights', formData.renounce_rights ? '✓' : '') ||
-        setFieldIfExists('Renounce rights', formData.renounce_rights ? '✓' : '');
+      setFieldIfExists('renounce_rights', formData.renounce_rights ? 'Yes' : '') ||
+        setFieldIfExists('Renounce rights', formData.renounce_rights ? 'Yes' : '');
 
-      setFieldIfExists('trade_rights', formData.trade_rights ? '✓' : '') ||
-        setFieldIfExists('Trade rights', formData.trade_rights ? '✓' : '');
+      setFieldIfExists('trade_rights', formData.trade_rights ? 'Yes' : '') ||
+        setFieldIfExists('Trade rights', formData.trade_rights ? 'Yes' : '');
 
       // Payment details for Section B (only if partial acceptance with payment)
       if (formData.shares_accepted > 0) {
