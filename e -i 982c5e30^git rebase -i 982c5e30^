@@ -1,0 +1,52 @@
+[33me75d133[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m acc no
+[33m4001e74[m acc no
+[33m982c5e3[m acc no
+[33m21aafe6[m[33m ([m[1;31morigin/main[m[33m)[m update admin Dashboard
+[33mb680058[m added date field
+[33m78ec20b[m adjusted exported csv
+[33m55d1d37[m csv error solving
+[33m2261f8f[m adjust excell formating Nd output
+[33ma0e418f[m updated admin page to show all
+[33m643158c[m adjust pdf
+[33m8b8da62[m better admin side
+[33mea1ddd4[m single signature upload
+[33m63a5361[m upload format
+[33m4375dce[m updated additonal payment issues
+[33m460d05b[m updated additonal payment issues
+[33m9f168cf[m updated additonal payment issues
+[33mc020fca[m added serviside blob adjustments
+[33mb16c622[m added serviside blob adjustments
+[33m4b7cc6f[m added serviside blob adjustments
+[33m7f57910[m added serviside Db adjustments
+[33m48ca11a[m added serviside Db adjustments
+[33m9317f53[m changed email service to mailgun
+[33m7912a16[m match with TIP real
+[33m5cf4571[m added new admin_users table
+[33m80294f4[m add authentication to the admin
+[33m3e4f33f[m solve cloudinary public issues
+[33m13e059e[m solved cloudinary pdf issues
+[33mebe8011[m solved cloudinary pdf issues
+[33mbaed7c3[m use local file in rights-form/ for the rights issue form
+[33m8b83ced[m use local file in rights-form/ for the rights issue form
+[33mf96aa61[m solve cloudinary 404 not seeing rights-form
+[33md53f556[m solve port issues and added zoho api mail config
+[33m63851ce[m solve port issues and added zoho api mail config
+[33mb2d04b9[m integrated with cludinary to store assets
+[33m4258ba1[m dded package.json each
+[33m75d6c5a[m dded package.json each
+[33m34a349b[m updated for form filling full2
+[33m4435b1b[m updated for form filling full
+[33m1799e6b[m Fixed build structure
+[33m77679f8[m Fixed build structure
+[33m042b74f[m Fixed build structure
+[33m9cd2860[m Fixed build structure
+[33me4a259d[m Fixed build structure
+[33m2726a65[m ADJUST
+[33md1cf2ac[m ADJUST
+[33m8838593[m ADJUST
+[33m8cd150c[m ADJUST
+[33mf94e8bb[m Fixed build structure
+[33m44528e2[m Fixed build structure
+[33ma2bf57c[m Fixed build structure
+[33m1e34ca2[m Remove ignored files from git tracking
+[33m366c01c[m first commit
