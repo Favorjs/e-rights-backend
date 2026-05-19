@@ -107,4 +107,5 @@ Thumbs.db
 *.pem
 *.key
 *.crt 
-*.google-credentials.json
+google-credentials.json
+*credentials*.json
