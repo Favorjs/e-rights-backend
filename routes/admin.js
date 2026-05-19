@@ -649,4 +649,76 @@ router.get('/export-rights', async (req, res) => {
   }
 });
 
+// Export dynamic NUBAN accounts report
+router.get('/export-nuban-accounts', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        dna.id,
+        dna.transaction_ref,
+        dna.shareholder_name AS name,
+        s.reg_account_number,
+        dna.email,
+        dna.account_number,
+        dna.banking_partner,
+        dna.principal_amount AS amount_expected,
+        dna.amount AS amount_with_fees,
+        dna.amount_received,
+        dna.status,
+        dna.created_at,
+        CASE WHEN rs.id IS NOT NULL THEN 'YES' ELSE 'NO' END AS form_submitted,
+        rs.bank_name_edividend AS shareholder_bank_name,
+        rs.account_number AS shareholder_bank_account
+      FROM dynamic_nuban_accounts dna
+      LEFT JOIN shareholders s ON s.id = dna.shareholder_id
+      LEFT JOIN rights_submissions rs ON rs.shareholder_id = dna.shareholder_id
+      ORDER BY dna.created_at DESC
+    `);
+
+    const escapeCsv = (value) => {
+      const str = value === null || value === undefined ? '' : String(value);
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
+    const headers = [
+      'S/No', 'Transaction Ref', 'Name', 'Registrars Account No', 'Email',
+      'NUBAN Account Number', 'Banking Partner', 'Amount Expected', 'Amount (with fees)',
+      'Amount Received', 'Status', 'Date', 'Form Submitted',
+      'Shareholder Bank Name', 'Shareholder Bank Account No'
+    ];
+
+    const csvHeader = headers.join(',') + '\n';
+    const csvData = result.rows.map((row, index) => {
+      const dataRow = [
+        index + 1,
+        row.transaction_ref || '',
+        row.name || '',
+        row.reg_account_number || '',
+        row.email || '',
+        row.account_number || '',
+        row.banking_partner || '',
+        row.amount_expected || '',
+        row.amount_with_fees || '',
+        row.amount_received || '',
+        row.status || '',
+        row.created_at ? new Date(row.created_at).toLocaleDateString('en-NG') : '',
+        row.form_submitted || 'NO',
+        row.shareholder_bank_name || '',
+        row.shareholder_bank_account || ''
+      ];
+      return dataRow.map(escapeCsv).join(',');
+    }).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=nuban_accounts_report.csv');
+    res.send(csvHeader + csvData);
+  } catch (error) {
+    console.error('Error exporting NUBAN accounts:', error);
+    res.status(500).json({
+      error: 'Failed to export NUBAN accounts report',
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;
