@@ -542,7 +542,8 @@ router.get('/export-rights', async (req, res) => {
         holdings_after,
         status,
         created_at,
-        bank_name_edividend
+        bank_name_edividend,
+        account_number
       FROM rights_submissions
     `;
     
@@ -579,6 +580,7 @@ router.get('/export-rights', async (req, res) => {
         'Rights Issue',
         'Additional Shares',
          'Bank Name',
+        'Bank Account Number',
         'Holdings After',
         'Amount Payable',
       
@@ -618,7 +620,8 @@ router.get('/export-rights', async (req, res) => {
           row.holdings || 0,
           row.rights_issue || 0,
           row.additional_shares || 0,
-    row.bank_name_edividend ||0,
+    row.bank_name_edividend || '',
+          row.account_number || '',
           row.holdings_after || 0,
           row.amount_payable || 0,
     
